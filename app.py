@@ -10,6 +10,7 @@ st.set_page_config(page_title="Content Brief Generator")
 WEBHOOK_URL = st.secrets.get("N8N_WEBHOOK_URL") or os.getenv("N8N_WEBHOOK_URL")
 AUTH_HEADER = st.secrets.get("N8N_AUTH_HEADER") or os.getenv("N8N_AUTH_HEADER")
 
+# Create a per-session UUID you can also pass through n8n
 if "session_id" not in st.session_state:
     st.session_state["session_id"] = str(uuid.uuid4())
 
@@ -25,8 +26,45 @@ def _build_headers():
     return headers
 
 
+def _normalize_n8n_response(resp):
+    """
+    Accepts any of:
+      - dict with the final keys
+      - dict with {"output": {...}}
+      - list with one dict (and possibly {output: {...}})
+      - raw text (string) -> return {"raw": "..."}
+    and returns a dict like:
+      {"H1": "...", "MainContent": [...], "ContextualBorder": [...], "SupplementaryContent": [...]}
+    """
+    if resp is None:
+        return {}
+
+    # If non-JSON text
+    if isinstance(resp, str):
+        return {"raw": resp}
+
+    data = resp
+
+    # If it's a list, grab the first element
+    if isinstance(data, list):
+        data = data[0] if data else {}
+
+    # If wrapped in {"output": {...}}, unwrap
+    if isinstance(data, dict) and "output" in data and isinstance(data["output"], dict):
+        data = data["output"]
+
+    # Make sure we always have the expected keys (no crashes if missing)
+    normalized = {
+        "H1": data.get("H1", ""),
+        "MainContent": data.get("MainContent", []),
+        "ContextualBorder": data.get("ContextualBorder", []),
+        "SupplementaryContent": data.get("SupplementaryContent", []),
+    }
+    return normalized
+
+
 def call_n8n(payload: dict) -> dict:
-    """Send a payload to the n8n workflow and return the JSON (or text) response."""
+    """Send a payload to the n8n workflow and return a normalized dict."""
     if not WEBHOOK_URL:
         st.error("N8N webhook URL is not configured. Set N8N_WEBHOOK_URL.")
         return {}
@@ -43,14 +81,15 @@ def call_n8n(payload: dict) -> dict:
             status.update(label=f"Received HTTP {response.status_code}", state="running")
             response.raise_for_status()
 
+            # Try JSON; fall back to text
             try:
-                data = response.json()
-                status.update(label="Parsed JSON response", state="complete")
-                return data
+                raw = response.json()
             except json.JSONDecodeError:
-                text = response.text.strip()
-                status.update(label="Got non-JSON response", state="complete")
-                return {"raw": text} if text else {}
+                raw = response.text.strip()
+
+            data = _normalize_n8n_response(raw)
+            status.update(label="Parsed response", state="complete")
+            return data
 
         except requests.Timeout:
             status.update(label="Timed out", state="error")
@@ -77,8 +116,12 @@ def render_group(name: str, items: list) -> None:
 # --- UI ---
 st.title("Content Brief Generator")
 
-# Show only prompt + H1 until we have a response
+# Show only prompt + H1 until we have a normalized response in session_state["data_ready"]
 if "data" not in st.session_state:
+    st.session_state["data"] = None
+
+# Minimal pre-response UI
+if st.session_state["data"] is None:
     with st.form("initial"):
         st.text_input("H1", key="H1_text")
         user_prompt = st.text_area("Describe what you're looking for", key="initial_prompt")
@@ -86,21 +129,21 @@ if "data" not in st.session_state:
 
     if sent and (user_prompt.strip() or st.session_state.get("H1_text", "").strip()):
         payload = {
-            "session_id": st.session_state["session_id"],
+            "session_id": st.session_state["session_id"],   # <-- session tracking
             "prompt": user_prompt.strip(),
             "H1": {"text": st.session_state.get("H1_text", ""), "regenerate": False},
         }
-        st.session_state["data"] = call_n8n(payload)
+        st.session_state["data"] = call_n8n(payload)  # normalized dict
         st.rerun()
 
 else:
+    # After first response: show full UI
     data = st.session_state["data"] or {}
 
-    # H1 visible after first response
+    # H1 is editable after response
     st.text_input("H1", value=data.get("H1", ""), key="H1_text")
     st.checkbox("Regenerate H1", key="H1_regen")
 
-    # Show groups only after response
     render_group("MainContent", data.get("MainContent", []))
     render_group("ContextualBorder", data.get("ContextualBorder", []))
     render_group("SupplementaryContent", data.get("SupplementaryContent", []))
@@ -111,7 +154,7 @@ else:
         submitted = st.form_submit_button("Submit")
     if submitted:
         payload = {
-            "session_id": st.session_state["session_id"],
+            "session_id": st.session_state["session_id"],  # keep passing the same session_id
             "H1": {
                 "text": st.session_state.get("H1_text", ""),
                 "regenerate": st.session_state.get("H1_regen", False),
@@ -122,6 +165,7 @@ else:
             "feedback": st.session_state.get("feedback", ""),
         }
 
+        # Gather edited items for each group
         for group in ["MainContent", "ContextualBorder", "SupplementaryContent"]:
             items = data.get(group, [])
             group_items = []
@@ -133,5 +177,11 @@ else:
                 })
             payload[group] = group_items
 
-        st.session_state["data"] = call_n8n(payload)
+        st.session_state["data"] = call_n8n(payload)  # normalized again
         st.rerun()
+
+# Optional: quick debug toggle
+with st.expander("Debug (optional)"):
+    st.write("Session ID:", st.session_state["session_id"])
+    st.write("Webhook URL set:", bool(WEBHOOK_URL))
+    st.json(st.session_state.get("data") or {})
