@@ -1,53 +1,68 @@
 import os
 import json
+import uuid
 import requests
 import streamlit as st
 
 st.set_page_config(page_title="Content Brief Generator")
 
-# --- Config: use a KEY name for secrets/env ---
-# Put the URL in .streamlit/secrets.toml as:
-# [default]
-# N8N_WEBHOOK_URL = "https://app.aiseoacademy.co/webhook-test/583c883f-c568-46a3-82a5-8102925a61ef"
-#
-# Or set an environment variable N8N_WEBHOOK_URL with the same value.
-WEBHOOK_URL = (
-    st.secrets.get("N8N_WEBHOOK_URL")
-    or os.getenv("N8N_WEBHOOK_URL")
-)
+# --- Config ---
+WEBHOOK_URL = st.secrets.get("N8N_WEBHOOK_URL") or os.getenv("N8N_WEBHOOK_URL")
+AUTH_HEADER = st.secrets.get("N8N_AUTH_HEADER") or os.getenv("N8N_AUTH_HEADER")
+
+if "session_id" not in st.session_state:
+    st.session_state["session_id"] = str(uuid.uuid4())
+
+
+def _build_headers():
+    headers = {"Content-Type": "application/json"}
+    if AUTH_HEADER:
+        try:
+            name, value = AUTH_HEADER.split(":", 1)
+            headers[name.strip()] = value.strip()
+        except ValueError:
+            st.warning("N8N_AUTH_HEADER is not in 'Name: value' format; ignoring.")
+    return headers
+
 
 def call_n8n(payload: dict) -> dict:
     """Send a payload to the n8n workflow and return the JSON (or text) response."""
     if not WEBHOOK_URL:
-        st.error("N8N webhook URL is not configured. Set N8N_WEBHOOK_URL in secrets or env.")
+        st.error("N8N webhook URL is not configured. Set N8N_WEBHOOK_URL.")
         return {}
 
-    try:
-        response = requests.post(
-            WEBHOOK_URL,
-            json=payload,
-            timeout=90,
-            headers={"Content-Type": "application/json"},
-        )
-        response.raise_for_status()
-
-        # Try JSON first; fall back to text to avoid crashes
+    with st.status("Contacting n8n…", expanded=False) as status:
+        status.update(label="Sending request…", state="running")
         try:
-            return response.json()
-        except json.JSONDecodeError:
-            text = response.text.strip()
-            return {"raw": text} if text else {}
+            response = requests.post(
+                WEBHOOK_URL,
+                json=payload,
+                timeout=90,
+                headers=_build_headers(),
+            )
+            status.update(label=f"Received HTTP {response.status_code}", state="running")
+            response.raise_for_status()
 
-    except requests.Timeout:
-        st.error("Request timed out after 90s. Your n8n workflow may be slow or blocking.")
-        return {}
-    except requests.RequestException as exc:
-        st.error(f"Request failed: {exc}")
-        # Optional: show response body if present
-        if hasattr(exc, "response") and exc.response is not None:
-            body = exc.response.text[:1000]
-            st.caption(f"Response body (truncated):\n{body}")
-        return {}
+            try:
+                data = response.json()
+                status.update(label="Parsed JSON response", state="complete")
+                return data
+            except json.JSONDecodeError:
+                text = response.text.strip()
+                status.update(label="Got non-JSON response", state="complete")
+                return {"raw": text} if text else {}
+
+        except requests.Timeout:
+            status.update(label="Timed out", state="error")
+            st.error("Request timed out after 90s.")
+            return {}
+        except requests.RequestException as exc:
+            status.update(label="Request failed", state="error")
+            st.error(f"Request failed: {exc}")
+            if getattr(exc, "response", None) is not None:
+                st.caption(f"Response body (truncated):\n{exc.response.text[:1000]}")
+            return {}
+
 
 def render_group(name: str, items: list) -> None:
     """Render a group of sections with editable fields and regenerate toggles."""
@@ -58,22 +73,34 @@ def render_group(name: str, items: list) -> None:
         st.checkbox("Regenerate?", key=f"{name}_{idx}_regen")
         st.markdown("---")
 
+
+# --- UI ---
 st.title("Content Brief Generator")
 
-# --- First step: prompt -> call n8n ---
+# Show only prompt + H1 until we have a response
 if "data" not in st.session_state:
     with st.form("initial"):
+        st.text_input("H1", key="H1_text")
         user_prompt = st.text_area("Describe what you're looking for", key="initial_prompt")
         sent = st.form_submit_button("Send")
-    if sent and user_prompt.strip():
-        st.session_state["data"] = call_n8n({"prompt": user_prompt.strip()})
+
+    if sent and (user_prompt.strip() or st.session_state.get("H1_text", "").strip()):
+        payload = {
+            "session_id": st.session_state["session_id"],
+            "prompt": user_prompt.strip(),
+            "H1": {"text": st.session_state.get("H1_text", ""), "regenerate": False},
+        }
+        st.session_state["data"] = call_n8n(payload)
         st.rerun()
+
 else:
     data = st.session_state["data"] or {}
 
+    # H1 visible after first response
     st.text_input("H1", value=data.get("H1", ""), key="H1_text")
     st.checkbox("Regenerate H1", key="H1_regen")
 
+    # Show groups only after response
     render_group("MainContent", data.get("MainContent", []))
     render_group("ContextualBorder", data.get("ContextualBorder", []))
     render_group("SupplementaryContent", data.get("SupplementaryContent", []))
@@ -84,6 +111,7 @@ else:
         submitted = st.form_submit_button("Submit")
     if submitted:
         payload = {
+            "session_id": st.session_state["session_id"],
             "H1": {
                 "text": st.session_state.get("H1_text", ""),
                 "regenerate": st.session_state.get("H1_regen", False),
