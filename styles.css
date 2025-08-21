@@ -6,7 +6,7 @@
   --accent: #6ee7ff;
   --accent-2: #a78bfa;
   --border: #1f1f2a;
-  --shadow-soft: 0 8px 22px rgba(110, 231, 255, 0.10), 0 4px 14px rgba(167, 139, 250, 0.08);
+  --shadow-soft: 0 6px 18px rgba(110, 231, 255, 0.10), 0 3px 10px rgba(167, 139, 250, 0.08);
 }
 
 html, body, .stApp {
@@ -16,30 +16,27 @@ html, body, .stApp {
   color: var(--text);
 }
 
-/* Use expanders as full-width cards — header hidden; details body is the card */
-[data-testid="stExpander"] {
+/* Section cards: solid border attached to the card (no floating) */
+.section-card {
+  background: var(--panel);
   border: 1.5px solid var(--border);
   border-radius: 14px;
-  background: var(--panel);
+  padding: 16px 16px 14px 16px;
   box-shadow: var(--shadow-soft);
-  margin: 16px 2px 18px 2px;
-}
-[data-testid="stExpander"] > details > summary {
-  display: none; /* hide the default expander header so card starts at first arrow */
-}
-[data-testid="stExpander"] > details {
-  padding: 14px 16px 12px 16px; /* card padding covers ALL inner widgets */
+  margin: 18px 2px 28px 2px;      /* still some air, but tighter overall */
+  position: relative;
+  overflow: hidden;               /* keeps effects within card bounds */
 }
 
-/* Divider */
+/* Divider between groups / after card */
 .divider {
   height: 1px;
   background: linear-gradient(90deg, rgba(110,231,255,0.28), rgba(167,139,250,0.28));
-  margin: 12px 0 18px 0;
+  margin: 14px 0 20px 0;
   border-radius: 999px;
 }
 .divider.subtle { opacity: .35; }
-.section-gap { margin-top: 16px; }
+.section-gap { margin-top: 20px; }
 
 /* Inputs */
 textarea, input, select, label {
@@ -51,7 +48,7 @@ textarea, input, select, label {
   z-index: 1;
 }
 
-/* Tight arrow cluster (left aligned) and compact bottom controls */
+/* Tight arrow cluster (left aligned) */
 .stButton>button {
   background: #151525;
   color: var(--text);
@@ -92,7 +89,7 @@ div[role="radiogroup"] input:checked + div {
   border-right: 1px solid var(--border);
 }
 
-/* streamlit-sortables item style */
+/* Sortables list item (remove default red, keep neutral pill) */
 .sortable-item, .sortable-item-selected, .st-sortable-item {
   background: #1a1a28 !important;
   color: var(--text) !important;
@@ -100,3 +97,31 @@ div[role="radiogroup"] input:checked + div {
   border-radius: 10px !important;
   padding: 6px 10px !important;
 }
+
+/* Full-screen overlay during webhook */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5,5,10,0.72);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.overlay-inner {
+  display:flex; flex-direction:column; align-items:center; gap:16px;
+  background: #0f0f16;
+  padding: 28px 36px;
+  border: 1px solid #2a2a3a;
+  border-radius: 16px;
+  box-shadow: var(--shadow-soft);
+}
+.overlay-text { font-size: 18px; color: var(--text); }
+.big-spinner {
+  width: 64px; height: 64px;
+  border: 6px solid #2a2a3a;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
