@@ -4,7 +4,7 @@ import uuid
 import requests
 import streamlit as st
 
-# Optional drag & drop helper (graceful fallback if unavailable / API differences)
+# Optional drag & drop helper (works with both new/old APIs)
 try:
     from streamlit_sortables import sort_items  # pip install streamlit-sortables
     HAS_SORT = True
@@ -38,12 +38,8 @@ ANSWER_TYPES = ["Auto", "EDA", "DDA", "L+LD", "S L+LD", "EOE"]
 HEADING_LEVELS = ["H2", "H3", "H4", "H5", "H6"]
 
 # --- Session bootstrap ---
-if "session_id" not in st.session_state:
-    st.session_state["session_id"] = str(uuid.uuid4())
-
-if "sections" not in st.session_state:
-    st.session_state["sections"] = {g: [] for g in GROUPS}
-
+st.session_state.setdefault("session_id", str(uuid.uuid4()))
+st.session_state.setdefault("sections", {g: [] for g in GROUPS})
 st.session_state.setdefault("H1_text", "")
 st.session_state.setdefault("H1_lock", False)
 st.session_state.setdefault("feedback", "")
@@ -64,18 +60,15 @@ def _new_section(heading="", level="H2", content="", answer_type="Auto", lock=Fa
     }
 
 def _hydrate_from_pending():
-    """Apply incoming values BEFORE widgets are created (one-time on load)."""
     if st.session_state.get("hydrated_once"):
         return
     pending = st.session_state.pop("_pending_hydration", None)
     if not pending:
         return
 
-    # If user already set H1, ignore webhook H1
     if not st.session_state.get("H1_text"):
         st.session_state["H1_text"] = pending.get("H1", "") or ""
 
-    # Append webhook sections to any user-created ones
     for group in GROUPS:
         existing = st.session_state["sections"][group]
         incoming = [
@@ -146,8 +139,8 @@ def call_n8n(payload: dict) -> dict:
 
     st.session_state["_waiting"] = True
     _overlay_blocker()
-
     try:
+        # ⬆️ timeout to 180s
         r = requests.post(WEBHOOK_URL, json=payload, timeout=180, headers=_build_headers())
         r.raise_for_status()
         try:
@@ -168,15 +161,13 @@ def _safe_rerun():
         except Exception:
             pass
 
-# ---- DnD compatibility helper ----
+# ---- DnD helper (supports both sortables APIs) ----
 def _dnd_new_order(labels, ids, key):
     if not HAS_SORT or not labels:
         return None
     try:
         new_labels, new_ids = sort_items(labels, ids=ids, direction="vertical", key=key)
-        if new_ids != ids:
-            return new_ids
-        return None
+        return new_ids if new_ids != ids else None
     except TypeError:
         aug = [f"\u2063{ix}\u2063{labels[ix]}" for ix in range(len(labels))]
         result = sort_items(aug, direction="vertical", key=key)
@@ -187,14 +178,10 @@ def _dnd_new_order(labels, ids, key):
         for s in new_aug:
             rest = s[1:]
             i_str, _, _ = rest.partition("\u2063")
-            try:
-                orig_idx = int(i_str)
-            except Exception:
-                orig_idx = 0
-            new_indices.append(orig_idx)
+            new_indices.append(int(i_str) if i_str.isdigit() else 0)
         return [ids[i] for i in new_indices]
 
-# ---- Reorder & CRUD helpers ----
+# ---- CRUD / reorder ----
 def _reorder_by_ids(group, new_id_order):
     id_to_item = {s["id"]: s for s in st.session_state["sections"][group]}
     st.session_state["sections"][group] = [id_to_item[i] for i in new_id_order if i in id_to_item]
@@ -206,8 +193,7 @@ def _move(group, idx, delta):
         lst[idx], lst[new_idx] = lst[new_idx], lst[idx]
 
 def _insert(group, idx):
-    lst = st.session_state["sections"][group]
-    lst.insert(idx + 1, _new_section())  # logical "Insert Below" behavior (label only)
+    st.session_state["sections"][group].insert(idx + 1, _new_section())
 
 def _append(group):
     st.session_state["sections"][group].append(_new_section())
@@ -219,13 +205,11 @@ def _remove(group, idx):
 
 def _indent_str(level):
     n = max(0, HEADING_LEVELS.index(level))
-    return " " * n
+    return " " * n  # em spaces
 
 def _merge_response_into_state(resp):
     if not resp:
         return
-
-    # Respect H1 user input; ignore webhook H1 after widget exists/initialized
     if not st.session_state.get("_h1_user_initialized") and not st.session_state.get("_h1_widget_rendered"):
         st.session_state["H1_text"] = resp.get("H1", st.session_state.get("H1_text", "")) or st.session_state.get("H1_text", "")
 
@@ -234,7 +218,6 @@ def _merge_response_into_state(resp):
         current = st.session_state["sections"][group]
         max_len = max(len(current), len(incoming))
         new_list = []
-
         for i in range(max_len):
             if i < len(current) and (i >= len(incoming)):
                 new_list.append(current[i]); continue
@@ -248,7 +231,6 @@ def _merge_response_into_state(resp):
                         answer_type=inc.get("Answer Type", "Auto"),
                     )
                 ); continue
-
             cur = current[i]; inc = incoming[i]
             if cur.get("lock"):
                 new_list.append(cur)
@@ -264,15 +246,12 @@ def _merge_response_into_state(resp):
                 })
         st.session_state["sections"][group] = new_list
 
-# ---- Sidebar: Outline + controls ----
+# ---- Sidebar: Outline + controls (ALWAYS live) ----
 with st.sidebar:
     st.markdown("## Outline Overview")
-    st.caption("Drag to reorder headings. Use < and > to change levels. H1 is edited in the main panel.")
+    st.caption("Drag to reorder headings. Use 〈 and 〉 to change levels. H1 is edited in the main panel.")
 
-    # H1 controls in sidebar footer (requested final placement)
-    h1_box = st.container()
-
-    # Outline lists
+    # Live outline: reads current widget state (name/level) so it updates instantly
     for g in GROUPS:
         st.markdown(f"**{GROUP_LABELS[g]}**")
         items = st.session_state["sections"][g]
@@ -280,13 +259,12 @@ with st.sidebar:
             st.caption("No sections yet."); st.markdown("---"); continue
 
         def _live_heading(sec):
-            # reflect in-UI edits immediately
             key = f"{g}_{sec['id']}_heading"
             return (st.session_state.get(key) or sec["heading"] or "").strip()
 
         def _live_level(sec):
-            key = f"{g}_{sec['id']}_level"
-            return st.session_state.get(key) or sec["level"]
+            key = f"{g}_{sec['id']}_level"  # we don’t store level in a widget key, so fall back
+            return st.session_state.get(key, sec["level"])
 
         display = [
             f"{_indent_str(_live_level(s))}{_live_level(s)} • {_live_heading(s) or '(untitled)'}"
@@ -300,9 +278,10 @@ with st.sidebar:
             st.experimental_set_query_params(_=str(uuid.uuid4()))
         st.markdown("---")
 
-    # Bottom controls: feedback + submit + debug
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-    st.text_area("Overall feedback", key="feedback", placeholder="Optional suggestions for the Agent…", height=120)
+    # Footer: H1 + feedback + submit + debug, all in sidebar
+    st.text_input("H1", key="H1_text", placeholder="Primary page title (H1)")
+    st.checkbox("Lock H1", key="H1_lock")
+    st.text_area("Overall feedback", key="feedback", placeholder="Optional suggestions…", height=120)
 
     with st.form("sidebar_submit"):
         sent = st.form_submit_button("Send / Update", use_container_width=True)
@@ -323,38 +302,32 @@ def _flag_h1_render():
     st.session_state["_h1_widget_rendered"] = True
     if st.session_state.get("H1_text", "").strip():
         st.session_state["_h1_user_initialized"] = True
+_flag_h1_render()
 
-col_h1, col_lock = st.columns([0.8, 0.2])
-with col_h1:
-    st.text_input("H1", key="H1_text", placeholder="Primary page title (H1)")
-    _flag_h1_render()
-with col_lock:
-    st.checkbox("Lock H1", key="H1_lock")
-
-# helpers for level change (reversed per request)
+# helpers for level change (LEFT raises to H2; RIGHT lowers to H6)
 def _level_raise_toward_h2(level):
     idx = HEADING_LEVELS.index(level)
-    return HEADING_LEVELS[max(idx - 1, 0)]  # left arrow: raise (H6->H5 ... -> H2)
+    return HEADING_LEVELS[max(idx - 1, 0)]
 
 def _level_lower_toward_h6(level):
     idx = HEADING_LEVELS.index(level)
-    return HEADING_LEVELS[min(idx + 1, len(HEADING_LEVELS) - 1)]  # right arrow: lower
+    return HEADING_LEVELS[min(idx + 1, len(HEADING_LEVELS) - 1)]
 
 def render_group(gname: str):
     st.subheader(GROUP_LABELS[gname])
 
-    # Add section only (no Clear All)
+    # Add section
     if st.button("➕ Add Section", key=f"add_{gname}"):
         _append(gname); _safe_rerun()
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
     items = st.session_state["sections"][gname]
 
-    # DnD list inside main body (optional)
+    # DnD within group on page
     if HAS_SORT and items:
         body_labels = [
-            f"{_indent_str(sec['level'])}{sec['level']} • {(st.session_state.get(f'{gname}_{sec['id']}_heading') or sec['heading'] or '(untitled)')}"
-            for sec in items
+            f"{_indent_str(s['level'])}{s['level']} • {(st.session_state.get(f'{gname}_{s['id']}_heading') or s['heading'] or '(untitled)')}"
+            for s in items
         ]
         body_ids = [s["id"] for s in items]
         new_order = _dnd_new_order(body_labels, body_ids, key=f"body_sort_{gname}")
@@ -365,10 +338,10 @@ def render_group(gname: str):
     # Cards
     for idx, sec in enumerate(items):
         sid = sec["id"]
-        st.markdown("<div class='card section-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
 
-        # Tight arrow cluster + level chip (left cluster); Location + Trash on top-right
-        top = st.columns([0.22, 0.44, 0.22, 0.12, 0.68, 0.12], gap="small")
+        # Tight left-aligned arrow cluster + level pill; Location + Trash top-right
+        top = st.columns([0.16, 0.16, 0.16, 0.14, 1, 0.22, 0.08], gap="small")
         if top[0].button("〈", key=f"dec_{gname}_{sid}", help="Raise level toward H2"):
             sec["level"] = _level_raise_toward_h2(sec["level"]); _safe_rerun()
         if top[1].button("＝", key=f"eq_{gname}_{sid}", help="Reset to H2"):
@@ -377,21 +350,21 @@ def render_group(gname: str):
             sec["level"] = _level_lower_toward_h6(sec["level"]); _safe_rerun()
         top[3].markdown(f"<div class='level-chip'>{sec['level']}</div>", unsafe_allow_html=True)
 
-        with top[4]:
-            # Location select aligned top-right
-            loc = st.selectbox("Location", GROUPS, index=GROUPS.index(gname), key=f"loc_{gname}_{sid}", label_visibility="collapsed")
+        with top[5]:
+            loc = st.selectbox("Location", GROUPS, index=GROUPS.index(gname),
+                               key=f"loc_{gname}_{sid}", label_visibility="collapsed")
             if loc != gname:
                 moved = st.session_state["sections"][gname].pop(idx)
                 st.session_state["sections"][loc].append(moved); _safe_rerun()
-        with top[5]:
-            if st.button("🗑️", key=f"rm_{gname}_{sid}", help="Remove section"):
+        with top[6]:
+            if st.button("🗑️", key=f"rm_{gname}_{sid}", help="Remove"):
                 _remove(gname, idx); _safe_rerun()
 
         # Inputs
-        st.text_input("Heading Text", key=f"{gname}_{sid}_heading", value=sec["heading"], placeholder="Section title…")
+        st.text_input("Heading Name", key=f"{gname}_{sid}_heading", value=sec["heading"], placeholder="Section title…")
         st.text_area("Description", key=f"{gname}_{sid}_content", value=sec["content"], height=140)
 
-        # Answer Type — compact radio with obvious selected state
+        # Answer Type — compact radio (clear selected state)
         st.radio(
             "Answer Type",
             ANSWER_TYPES,
@@ -419,43 +392,16 @@ def render_group(gname: str):
             if st.button("➕ Insert Below", key=f"ins_{gname}_{sid}"):
                 _insert(gname, idx); _safe_rerun()
 
-        st.markdown("</div>", unsafe_allow_html=True)  # end card
+        st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("<div class='divider subtle section-gap'></div>", unsafe_allow_html=True)
 
-# Render groups (always)
+# Render groups
 for g in GROUPS:
     render_group(g)
 
-# --- Collect + Send (button is in sidebar) ---
-if st.session_state.get("sidebar_submit"):
-    pass  # (form uses 'sent' variable below)
-
-# Handle sidebar submit
-if 'sent' in st.session_state:
-    # prevent duplicate re-runs; 'sent' is not stable between reruns
-    pass
-
-# Read the button state from form by key (Streamlit sets a new value each submit)
-# So capture immediately:
-if 'sidebar_submit' in st.session_state:
-    # The form uses variable 'sent' locally; to capture we just rebuild payload on every run
-    # and check the last form state below. Simpler: use a hidden button return via session.
-    pass
-
-# The simplest reliable way: re-create the form and process immediately above didn't expose 'sent'.
-# Instead, we read from the widget state Streamlit keeps:
-sent = st.session_state.get("sidebar_submit_Send / Update", False)  # internal key is not guaranteed
-# Safer: check for a transient flag we set on click; so we also bind via on_click next time if needed.
-# To keep this robust, we will build/send when any of the inputs changed AND user clicked this run.
-# But Streamlit doesn't expose click detection directly here; we'll just re-build on every run where
-# 'sent' variable existed in the form scope. To keep deterministic, add explicit button handler:
-
-# We create a small invisible button at the end of the sidebar form via the same key; handled earlier.
-# As a practical approach, we'll add an action handler directly below where the form is created.
-# (Already handled when the form was created; so we replicate the send logic here:)
-
-def _collect_and_send():
-    # sync current widget values back into sections model
+# --- Sidebar "Send/Update" handling ---
+if sent:
+    # sync back to model
     for g in GROUPS:
         updated = []
         for sec in st.session_state["sections"][g]:
@@ -480,7 +426,7 @@ def _collect_and_send():
         "feedback": st.session_state.get("feedback", ""),
     }
 
-    # Convert editor state -> webhook arrays (legacy + new keys)
+    # Arrays (legacy + new keys)
     for g in GROUPS:
         arr = []
         for sec in st.session_state["sections"][g]:
@@ -504,6 +450,30 @@ def _collect_and_send():
     _merge_response_into_state(normalized)
     _safe_rerun()
 
-# Because of Streamlit form scoping, we add a tiny proxy button in the sidebar form (already) and call here:
-if sent:
-    _collect_and_send()
+# ===== TSV EXPORT (bottom of page) =====
+# Build a TSV across all groups, preserving on-screen order
+rows = []
+for g in GROUPS:
+    for sec in st.session_state["sections"][g]:
+        sid = sec["id"]
+        heading_name = st.session_state.get(f"{g}_{sid}_heading", sec["heading"]).strip()
+        description = st.session_state.get(f"{g}_{sid}_content", sec["content"]).strip()
+        answer_type = st.session_state.get(f"{g}_{sid}_atype", sec["answer_type"])
+        rows.append((
+            sec["level"],
+            heading_name,
+            description.replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n"),
+            answer_type,
+            GROUP_LABELS[g].split()[0] if g == "MainContent" else
+            ("Contextual Border" if g == "ContextualBorder" else "Supplementary")
+        ))
+
+tsv_lines = ["Heading\tHeading Name\tDescription\tAnswerType\tLocation"]
+for r in rows:
+    tsv_lines.append("\t".join(r))
+tsv_blob = "\n".join(tsv_lines)
+
+st.markdown("### Copy TSV")
+st.caption("Copy/paste into a spreadsheet. Columns: Heading | Heading Name | Description | AnswerType | Location")
+st.code(tsv_blob, language="text")
+st.download_button("Download TSV", data=tsv_blob, file_name="content_brief.tsv", mime="text/tab-separated-values")
