@@ -6,8 +6,7 @@
   --accent: #6ee7ff;
   --accent-2: #a78bfa;
   --border: #1f1f2a;
-  --shadow-soft: 0 6px 18px rgba(110, 231, 255, 0.10),
-                 0 3px 10px rgba(167, 139, 250, 0.08);
+  --shadow-soft: 0 6px 18px rgba(110, 231, 255, 0.10), 0 3px 10px rgba(167, 139, 250, 0.08);
 }
 
 html, body, .stApp {
@@ -17,11 +16,11 @@ html, body, .stApp {
   color: var(--text);
 }
 
-/* --------------------------------------------
-   FIX: Attach the border + shadow to the 
-   actual Streamlit block that *contains*
-   .section-card, regardless of nesting.
---------------------------------------------- */
+/* =========================================================
+   SECTION CARD BORDER/SHADOW — innermost block only
+   ========================================================= */
+
+/* Apply card styling to any Streamlit block that contains a marker */
 [data-testid="stVerticalBlock"]:has(.section-card),
 [data-testid="stHorizontalBlock"]:has(.section-card) {
   background: var(--panel);
@@ -34,10 +33,23 @@ html, body, .stApp {
   overflow: hidden;
 }
 
-/* Hide the marker itself so we don’t double-render a border */
-.section-card {
-  display: none !important;
+/* RESET card styling for ancestor blocks that contain a nested block
+   which itself has a section-card; this leaves ONLY the innermost
+   block styled like a card (fixes "whole page" border). */
+[data-testid="stVerticalBlock"]:has([data-testid="stVerticalBlock"]:has(.section-card)),
+[data-testid="stHorizontalBlock"]:has([data-testid="stHorizontalBlock"]:has(.section-card)) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
 }
+
+/* Hide the marker element so it doesn't render a duplicate box */
+.section-card { display: none !important; }
+
+/* ====== Your existing visuals (unchanged) ====== */
 
 /* Divider between groups / after card */
 .divider {
@@ -59,7 +71,7 @@ textarea, input, select, label {
   z-index: 1;
 }
 
-/* Buttons */
+/* Tight arrow cluster (left aligned) */
 .stButton>button {
   background: #151525;
   color: var(--text);
@@ -80,7 +92,7 @@ textarea, input, select, label {
   font-weight:600;
 }
 
-/* Answer Type radio */
+/* Answer Type radio: compact horizontal, clear selected state */
 div[role="radiogroup"] { gap: 6px !important; }
 div[role="radiogroup"] label {
   background: #151525 !important;
@@ -94,13 +106,13 @@ div[role="radiogroup"] input:checked + div {
   box-shadow: 0 0 10px rgba(110,231,255,0.22) inset !important;
 }
 
-/* Sidebar */
-[data-testid="stSidebar"] {
+/* Sidebar look */
+[data-testid="stSidebar"]{
   background: linear-gradient(180deg, rgba(14,14,22,0.9), rgba(10,10,16,0.9));
   border-right: 1px solid var(--border);
 }
 
-/* Sortable items */
+/* Sortables list item (neutral pill) */
 .sortable-item, .sortable-item-selected, .st-sortable-item {
   background: #1a1a28 !important;
   color: var(--text) !important;
@@ -109,7 +121,7 @@ div[role="radiogroup"] input:checked + div {
   padding: 6px 10px !important;
 }
 
-/* Overlay during webhook */
+/* Full-screen overlay during webhook */
 .overlay {
   position: fixed;
   inset: 0;
