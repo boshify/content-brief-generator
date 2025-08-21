@@ -212,6 +212,17 @@ def _level_lower(level):
 def _indent(level):
     return " " * LEVELS.index(level)
 
+# ---------- Helper: read latest widget value by section id (robust after moving groups) ----------
+def _get_widget_value_by_suffix(suffix: str, default):
+    """
+    Return the most recent value from st.session_state for any key that endswith(suffix).
+    This lets us survive moves between groups (keys are prefixed with group name).
+    """
+    for k, v in st.session_state.items():
+        if isinstance(k, str) and k.endswith(suffix):
+            return v
+    return default
+
 # ---------- Build snapshot (SINGLE SOURCE OF TRUTH for sidebar + payload + TSV) ----------
 def build_snapshot():
     snap = {
@@ -224,22 +235,29 @@ def build_snapshot():
     }
     for g in GROUPS:
         for sec in st.session_state["sections"][g]:
-            # Prefer the current widget value if present; fall back to persisted dict
-            hname = st.session_state.get(f"{g}_{sec['id']}_heading_name", sec["heading_name"])
-            desc  = st.session_state.get(f"{g}_{sec['id']}_desc", sec["description"])
-            atype = st.session_state.get(f"{g}_{sec['id']}_atype", sec["answer_type"])
-            lvl   = sec["heading"]
-            locked = st.session_state.get(f"{g}_{sec['id']}_lock", sec["lock"])
-            subq   = st.session_state.get(f"{g}_{sec['id']}_subseq", sec["subsequent"])
+            sid = sec["id"]
+
+            # Prefer the current widget values by sid (survives group moves), else fallback to group-prefixed keys,
+            # else fallback to the persisted dict.
+            hname = _get_widget_value_by_suffix(f"_{sid}_heading_name",
+                     st.session_state.get(f"{g}_{sid}_heading_name", sec["heading_name"]))
+            desc  = _get_widget_value_by_suffix(f"_{sid}_desc",
+                     st.session_state.get(f"{g}_{sid}_desc", sec["description"]))
+            atype = _get_widget_value_by_suffix(f"_{sid}_atype",
+                     st.session_state.get(f"{g}_{sid}_atype", sec["answer_type"]))
+            locked = _get_widget_value_by_suffix(f"_{sid}_lock",
+                     st.session_state.get(f"{g}_{sid}_lock", sec["lock"]))
+            subq   = _get_widget_value_by_suffix(f"_{sid}_subseq",
+                     st.session_state.get(f"{g}_{sid}_subseq", sec["subsequent"]))
 
             snap[g].append({
                 "H2": hname,
                 "Methodology": desc,
-                "HeadingLevel": lvl,
+                "HeadingLevel": sec["heading"],  # level is stored inside dict and updated by buttons
                 "Answer Type": atype,
-                "lock": locked,
+                "lock": bool(locked),
                 **({"Subsequent Sections?": "Yes" if subq else "No"} if locked else {}),
-                "_id": sec["id"],  # id retained only for UI mapping
+                "_id": sid,  # id retained only for UI mapping
             })
     return snap
 
@@ -263,6 +281,11 @@ def render_group(group):
 
     for idx, sec in enumerate(items):
         sid = sec["id"]
+
+        # --- NEW: wrapper marker for precise border/shadow targeting via CSS ---
+        st.markdown("<div class='section-card-wrap'></div>", unsafe_allow_html=True)
+
+        # Keep the original marker too (back-compat with previous CSS)
         st.markdown("<div class='section-card'>", unsafe_allow_html=True)
 
         # Top control row (no divider above; CSS handles the card)
