@@ -1,0 +1,7 @@
+[theme]
+base="dark"
+primaryColor="#6ee7ff"          # Accent color for highlights
+backgroundColor="#0b0b0f"      # Page background
+secondaryBackgroundColor="#111118" # Section card backgrounds
+textColor="#e6e6f0"            # Default text color
+font="sans serif"              # Optional: "serif" or "monospace"
