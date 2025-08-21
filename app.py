@@ -4,7 +4,7 @@ import uuid
 import requests
 import streamlit as st
 
-# Optional drag & drop helper (SIDEBAR ONLY). Works with old/new APIs.
+# Sidebar DnD (works with old/new APIs)
 try:
     from streamlit_sortables import sort_items  # pip install streamlit-sortables
     HAS_SORT = True
@@ -60,7 +60,6 @@ def _new_section(heading="", level="H2", content="", answer_type="Auto", lock=Fa
     }
 
 def _hydrate_from_pending():
-    """Apply incoming values BEFORE widgets are created (one-time)."""
     if st.session_state.get("hydrated_once"):
         return
     pending = st.session_state.pop("_pending_hydration", None)
@@ -120,7 +119,6 @@ def _normalize_n8n_response(resp):
         "SupplementaryContent": data.get("SupplementaryContent", []),
     }
 
-# --- Full-screen overlay while waiting ---
 def _overlay_blocker():
     if st.session_state.get("_waiting"):
         st.markdown(
@@ -136,7 +134,6 @@ def _overlay_blocker():
         )
 
 def call_n8n(payload: dict) -> dict:
-    """Send payload to n8n and return normalized dict (timeout 180s)."""
     if not WEBHOOK_URL:
         st.error("N8N webhook URL is not configured. Set N8N_WEBHOOK_URL.")
         return {}
@@ -164,7 +161,7 @@ def _safe_rerun():
         except Exception:
             pass
 
-# ---- DnD helper (SIDEBAR ONLY; supports old/new sortables APIs) ----
+# Sidebar DnD helper
 def _dnd_new_order(labels, ids, key):
     if not HAS_SORT or not labels:
         return None
@@ -188,7 +185,6 @@ def _dnd_new_order(labels, ids, key):
             new_indices.append(idx)
         return [ids[i] for i in new_indices]
 
-# ---- Utilities ----
 def _reorder_by_ids(group, new_id_order):
     id_to_item = {s["id"]: s for s in st.session_state["sections"][group]}
     st.session_state["sections"][group] = [id_to_item[i] for i in new_id_order if i in id_to_item]
@@ -212,12 +208,11 @@ def _remove(group, idx):
 
 def _indent_str(level):
     n = max(0, HEADING_LEVELS.index(level))
-    return " " * n  # em spaces (visual indent only)
+    return " " * n  # em spaces (visual indent)
 
 def _merge_response_into_state(resp):
     if not resp:
         return
-    # Respect user-set H1
     if not st.session_state.get("_h1_user_initialized") and not st.session_state.get("_h1_widget_rendered"):
         st.session_state["H1_text"] = resp.get("H1", st.session_state.get("H1_text", "")) or st.session_state.get("H1_text", "")
 
@@ -254,9 +249,8 @@ def _merge_response_into_state(resp):
                 })
         st.session_state["sections"][group] = new_list
 
-# -------- Model snapshot (single source of truth for sidebar + payload + TSV) --------
+# Snapshot used for Debug/Send/TSV (but sidebar now reads LIVE widget values first)
 def build_snapshot():
-    """Return a dict identical to the JSON payload we will send."""
     snap = {
         "session_id": st.session_state["session_id"],
         "H1": {"text": st.session_state.get("H1_text", ""), "lock": st.session_state.get("H1_lock", False)},
@@ -272,7 +266,7 @@ def build_snapshot():
                 "Answer Type": sec["answer_type"],
                 "lock": sec["lock"],
                 **({"Subsequent Sections?": "Yes" if sec["gen_subsequent"] else "No"} if sec["lock"] else {}),
-                "_id": sec["id"],  # keep id for mapping in the sidebar
+                "_id": sec["id"],
             })
         snap[g] = arr
     return snap
@@ -282,7 +276,7 @@ def build_snapshot():
 # ============================
 st.title("Content Brief Generator")
 
-# H1 row at the top
+# H1 row
 c1, c2 = st.columns([0.8, 0.2])
 with c1:
     st.text_input("H1", key="H1_text", placeholder="Primary page title (H1)")
@@ -292,7 +286,7 @@ with c1:
 with c2:
     st.checkbox("Lock H1", key="H1_lock")
 
-# helpers for level change (LEFT raises to H2; RIGHT lowers to H6)
+# level helpers
 def _level_raise_toward_h2(level):
     idx = HEADING_LEVELS.index(level)
     return HEADING_LEVELS[max(idx - 1, 0)]
@@ -307,101 +301,120 @@ def render_group(gname: str):
     # Add section
     if st.button("➕ Add Section", key=f"add_{gname}"):
         _append(gname); _safe_rerun()
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
     items = st.session_state["sections"][gname]
 
-    # CARDS: use expanders as full-width cards so border+shadow wrap entire section
+    # Section cards
     for idx, sec in enumerate(items):
         sid = sec["id"]
-        with st.expander(" ", expanded=True):  # header hidden via CSS; acts like a card shell
-            # Top row: 〈 ＝ 〉 + H2 pill (left), Location + Trash (right)
-            top = st.columns([0.10, 0.10, 0.10, 0.12, 1, 0.32, 0.08], gap="small")
-            if top[0].button("〈", key=f"dec_{gname}_{sid}", help="Raise level toward H2"):
-                sec["level"] = _level_raise_toward_h2(sec["level"]); _safe_rerun()
-            if top[1].button("＝", key=f"eq_{gname}_{sid}", help="Reset to H2"):
-                sec["level"] = "H2"; _safe_rerun()
-            if top[2].button("〉", key=f"inc_{gname}_{sid}", help="Lower level toward H6"):
-                sec["level"] = _level_lower_toward_h6(sec["level"]); _safe_rerun()
-            top[3].markdown(f"<div class='level-chip'>{sec['level']}</div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
 
-            with top[5]:
-                loc = st.selectbox(
-                    "Location",
-                    GROUPS,
-                    index=GROUPS.index(gname),
-                    key=f"loc_{gname}_{sid}",
-                    label_visibility="collapsed",
-                    format_func=lambda v: GROUP_LABELS[v],
-                )
-                if loc != gname:
-                    moved = st.session_state["sections"][gname].pop(idx)
-                    st.session_state["sections"][loc].append(moved); _safe_rerun()
-            with top[6]:
-                if st.button("🗑️", key=f"rm_{gname}_{sid}", help="Remove section"):
-                    _remove(gname, idx); _safe_rerun()
+        # Arrow row (no divider above anymore)
+        top = st.columns([0.10, 0.10, 0.10, 0.12, 1, 0.32, 0.08], gap="small")
+        if top[0].button("〈", key=f"dec_{gname}_{sid}", help="Raise level toward H2"):
+            sec["level"] = _level_raise_toward_h2(sec["level"]); _safe_rerun()
+        if top[1].button("＝", key=f"eq_{gname}_{sid}", help="Reset to H2"):
+            sec["level"] = "H2"; _safe_rerun()
+        if top[2].button("〉", key=f"inc_{gname}_{sid}", help="Lower level toward H6"):
+            sec["level"] = _level_lower_toward_h6(sec["level"]); _safe_rerun()
+        top[3].markdown(f"<div class='level-chip'>{sec['level']}</div>", unsafe_allow_html=True)
 
-            # Inputs (LIVE-sync the backing dict so snapshot & sidebar reflect immediately)
-            sec["heading"] = st.text_input("Heading Name", key=f"{gname}_{sid}_heading",
-                                           value=sec["heading"], placeholder="Section title…")
-            sec["content"] = st.text_area("Description", key=f"{gname}_{sid}_content",
-                                          value=sec["content"], height=160)
-
-            # Answer Type — compact radio
-            sec["answer_type"] = st.radio(
-                "Answer Type",
-                ANSWER_TYPES,
-                key=f"{gname}_{sid}_atype",
-                index=ANSWER_TYPES.index(sec["answer_type"]),
-                horizontal=True
+        with top[5]:
+            loc = st.selectbox(
+                "Location",
+                GROUPS,
+                index=GROUPS.index(gname),
+                key=f"loc_{gname}_{sid}",
+                label_visibility="collapsed",
+                format_func=lambda v: GROUP_LABELS[v],
             )
+            if loc != gname:
+                moved = st.session_state["sections"][gname].pop(idx)
+                st.session_state["sections"][loc].append(moved); _safe_rerun()
+        with top[6]:
+            if st.button("🗑️", key=f"rm_{gname}_{sid}", help="Remove section"):
+                _remove(gname, idx); _safe_rerun()
 
-            # Bottom row: tighter cluster (Up/Down/Insert) + lock/subsequent
-            bottom = st.columns([0.14, 0.14, 0.20, 0.22, 0.22], gap="small")
-            with bottom[0]:
-                if st.button("⬆️ Up", key=f"up_{gname}_{sid}"):
-                    _move(gname, idx, -1); _safe_rerun()
-            with bottom[1]:
-                if st.button("⬇️ Down", key=f"down_{gname}_{sid}"):
-                    _move(gname, idx, 1); _safe_rerun()
-            with bottom[2]:
-                if st.button("➕ Insert Below", key=f"ins_{gname}_{sid}"):
-                    _insert(gname, idx); _safe_rerun()
-            with bottom[3]:
-                sec["lock"] = st.checkbox("Lock Section", key=f"{gname}_{sid}_lock", value=sec["lock"])
-            with bottom[4]:
-                if sec["lock"]:
-                    sec["gen_subsequent"] = st.checkbox("Generate Subsequent Sections?",
-                                                        key=f"{gname}_{sid}_gsub", value=sec["gen_subsequent"])
-                else:
-                    st.session_state[f"{gname}_{sid}_gsub"] = sec["gen_subsequent"]
+        # Inputs (LIVE-sync)
+        sec["heading"] = st.text_input("Heading Name", key=f"{gname}_{sid}_heading",
+                                       value=sec["heading"], placeholder="Section title…")
+        sec["content"] = st.text_area("Description", key=f"{gname}_{sid}_content",
+                                      value=sec["content"], height=160)
 
+        # Answer Type
+        sec["answer_type"] = st.radio(
+            "Answer Type",
+            ANSWER_TYPES,
+            key=f"{gname}_{sid}_atype",
+            index=ANSWER_TYPES.index(sec["answer_type"]),
+            horizontal=True
+        )
+
+        # Bottom controls — tighter spacing
+        bottom = st.columns([0.14, 0.14, 0.20, 0.22, 0.22], gap="small")
+        with bottom[0]:
+            if st.button("⬆️ Up", key=f"up_{gname}_{sid}"):
+                _move(gname, idx, -1); _safe_rerun()
+        with bottom[1]:
+            if st.button("⬇️ Down", key=f"down_{gname}_{sid}"):
+                _move(gname, idx, 1); _safe_rerun()
+        with bottom[2]:
+            if st.button("➕ Insert Below", key=f"ins_{gname}_{sid}"):
+                _insert(gname, idx); _safe_rerun()
+        with bottom[3]:
+            sec["lock"] = st.checkbox("Lock Section", key=f"{gname}_{sid}_lock", value=sec["lock"])
+        with bottom[4]:
+            if sec["lock"]:
+                sec["gen_subsequent"] = st.checkbox("Generate Subsequent Sections?",
+                                                    key=f"{gname}_{sid}_gsub", value=sec["gen_subsequent"])
+            else:
+                st.session_state[f"{gname}_{sid}_gsub"] = sec["gen_subsequent"]
+
+        st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("<div class='divider subtle section-gap'></div>", unsafe_allow_html=True)
 
-# Render page groups first (so sidebar reads freshest state)
+# Render groups first (so sidebar reads freshest state)
 for g in GROUPS:
     render_group(g)
 
-# Build a single source of truth snapshot (JSON we'd send)
-snapshot = build_snapshot()
+# Snapshot for Debug/Send/TSV
+snapshot = {
+    "session_id": st.session_state["session_id"],
+    "H1": {"text": st.session_state.get("H1_text", ""), "lock": st.session_state.get("H1_lock", False)},
+    "feedback": st.session_state.get("feedback", ""),
+}
+for g in GROUPS:
+    arr = []
+    for sec in st.session_state["sections"][g]:
+        arr.append({
+            "H2": sec["heading"],
+            "Methodology": sec["content"],
+            "HeadingLevel": sec["level"],
+            "Answer Type": sec["answer_type"],
+            "lock": sec["lock"],
+            **({"Subsequent Sections?": "Yes" if sec["gen_subsequent"] else "No"} if sec["lock"] else {}),
+            "_id": sec["id"],
+        })
+    snapshot[g] = arr
 
 # ============================
-# Sidebar: live outline from SNAPSHOT + DnD + Send + Debug
+# Sidebar: LIVE widget titles -> DnD -> page reorder
 # ============================
 with st.sidebar:
     st.markdown("## Outline Overview")
     st.caption("Drag to reorder headings. Use 〈 and 〉 to change levels. H1 is edited at the top.")
 
-    # Live outline (mirrors snapshot)
     for g in GROUPS:
         st.markdown(f"**{GROUP_LABELS[g]}**")
-        items = snapshot[g]
+        items = st.session_state["sections"][g]
         if not items:
             st.caption("No sections yet."); st.markdown("---"); continue
 
-        # Labels from the latest snapshot (exactly what will be sent)
-        labels = [f"{_indent_str(it['HeadingLevel'])}{(it['H2'] or '(untitled)').strip()}" for it in items]
-        ids = [it["_id"] for it in items]
+        labels, ids = [], []
+        for s in items:
+            live = st.session_state.get(f"{g}_{s['id']}_heading", s["heading"])
+            labels.append(f"{_indent_str(s['level'])}{(live or '(untitled)').strip()}")
+            ids.append(s["id"])
 
         new_order = _dnd_new_order(labels, ids, key=f"sidebar_sort_{g}")
         if new_order:
@@ -409,18 +422,16 @@ with st.sidebar:
             _safe_rerun()
         st.markdown("---")
 
-    # Feedback + send + debug
     st.text_area("Overall feedback", key="feedback", placeholder="Optional suggestions…", height=120)
-
     with st.form("sidebar_submit"):
         sent = st.form_submit_button("Send / Update", use_container_width=True)
 
+    # ✅ Debug restored and visible
     with st.expander("Debug (optional)"):
         st.json(snapshot)
 
 # --- Send/Update handler ---
 if sent:
-    # Send exactly the snapshot (with _id fields stripped)
     payload = {
         "session_id": snapshot["session_id"],
         "H1": snapshot["H1"],
@@ -434,14 +445,10 @@ if sent:
     _safe_rerun()
 
 # ============================
-# TSV EXPORT (bottom of page)
+# TSV (bottom of page)
 # ============================
 rows = []
-
-# First row = H1
 rows.append(("H1", (st.session_state.get("H1_text") or "").strip(), "", "", "Title"))
-
-# Then sections (in on-screen order)
 for g in GROUPS:
     for sec in st.session_state["sections"][g]:
         location = "Main" if g == "MainContent" else ("Contextual Border" if g == "ContextualBorder" else "Supplementary")
