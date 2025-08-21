@@ -16,30 +16,27 @@ html, body, .stApp {
   color: var(--text);
 }
 
-/* Use expanders as full-width cards — header hidden; details body is the card */
-[data-testid="stExpander"] {
+/* Section cards (real container) */
+.section-card {
+  background: var(--panel);
   border: 1.5px solid var(--border);
   border-radius: 14px;
-  background: var(--panel);
+  padding: 16px 16px 14px 16px;
   box-shadow: var(--shadow-soft);
-  margin: 16px 2px 18px 2px;
-}
-[data-testid="stExpander"] > details > summary {
-  display: none; /* hide the default expander header so card starts at first arrow */
-}
-[data-testid="stExpander"] > details {
-  padding: 14px 16px 12px 16px; /* card padding covers ALL inner widgets */
+  margin: 16px 2px 22px 2px;
+  position: relative;
+  overflow: hidden;  /* keeps effects within card bounds */
 }
 
-/* Divider */
+/* Divider only BETWEEN cards / groups */
 .divider {
   height: 1px;
   background: linear-gradient(90deg, rgba(110,231,255,0.28), rgba(167,139,250,0.28));
-  margin: 12px 0 18px 0;
+  margin: 10px 0 14px 0;
   border-radius: 999px;
 }
 .divider.subtle { opacity: .35; }
-.section-gap { margin-top: 16px; }
+.section-gap { margin-top: 12px; }
 
 /* Inputs */
 textarea, input, select, label {
@@ -51,7 +48,7 @@ textarea, input, select, label {
   z-index: 1;
 }
 
-/* Tight arrow cluster (left aligned) and compact bottom controls */
+/* Tight arrow cluster */
 .stButton>button {
   background: #151525;
   color: var(--text);
@@ -72,7 +69,7 @@ textarea, input, select, label {
   font-weight:600;
 }
 
-/* Answer Type radio: compact horizontal, clear selected state */
+/* Answer Type radio */
 div[role="radiogroup"] { gap: 6px !important; }
 div[role="radiogroup"] label {
   background: #151525 !important;
@@ -86,13 +83,13 @@ div[role="radiogroup"] input:checked + div {
   box-shadow: 0 0 10px rgba(110,231,255,0.22) inset !important;
 }
 
-/* Sidebar look */
+/* Sidebar */
 [data-testid="stSidebar"]{
   background: linear-gradient(180deg, rgba(14,14,22,0.9), rgba(10,10,16,0.9));
   border-right: 1px solid var(--border);
 }
 
-/* streamlit-sortables item style */
+/* Sortables items (remove any default red) */
 .sortable-item, .sortable-item-selected, .st-sortable-item {
   background: #1a1a28 !important;
   color: var(--text) !important;
