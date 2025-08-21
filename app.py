@@ -59,7 +59,8 @@ def _new_section(heading_name="", level="H2", description="", answer_type="Auto"
 # ---------- Hydration from webhook (one-time pre-widget) ----------
 def _hydrate_from_pending():
     if st.session_state.get("hydrated_once"):
-        return
+        # allow multiple hydrations across runs; only guard initial first-run behavior
+        pass
     pending = st.session_state.pop("_pending_hydration", None)
     if not pending:
         return
@@ -379,38 +380,20 @@ if sent:
         "SupplementaryContent": [{k: v for k, v in d.items() if k != "_id"} for d in snapshot["SupplementaryContent"]],
     }
     resp = call_n8n(payload)
-    # Merge response respecting locks; never override user's set H1
+
+    # FIX: H1 hydration after webhook — never set st.session_state["H1_text"] here.
+    # Instead, stage the incoming values in _pending_hydration and rerun so
+    # _hydrate_from_pending() (which runs BEFORE any widgets) can safely apply them.
     if resp:
-        if not st.session_state.get("H1_text"):
-            st.session_state["H1_text"] = resp.get("H1", st.session_state["H1_text"]) or st.session_state["H1_text"]
-        for g in GROUPS:
-            inc = resp.get(g, []) or []
-            cur = st.session_state["sections"][g]
-            max_len = max(len(cur), len(inc))
-            merged = []
-            for i in range(max_len):
-                if i < len(cur) and i >= len(inc):
-                    merged.append(cur[i]); continue
-                if i >= len(cur) and i < len(inc):
-                    item = inc[i]
-                    merged.append(_new_section(
-                        heading_name=item.get("H2", ""),
-                        level=item.get("HeadingLevel", "H2"),
-                        description=item.get("Methodology", ""),
-                        answer_type=item.get("Answer Type", "Auto"),
-                    )); continue
-                c = cur[i]; r = inc[i]
-                if c.get("lock"):
-                    merged.append(c)
-                else:
-                    merged.append({
-                        **c,
-                        "heading_name": r.get("H2", c["heading_name"]),
-                        "heading": r.get("HeadingLevel", c["heading"]),
-                        "description": r.get("Methodology", c["description"]),
-                        "answer_type": r.get("Answer Type", c["answer_type"]),
-                    })
-            st.session_state["sections"][g] = merged
+        staged = {
+            "H1": resp.get("H1", ""),
+            "MainContent": resp.get("MainContent", []),
+            "ContextualBorder": resp.get("ContextualBorder", []),
+            "SupplementaryContent": resp.get("SupplementaryContent", []),
+            "feedback": resp.get("feedback", ""),
+        }
+        st.session_state["_pending_hydration"] = staged
+
     _safe_rerun()
 
 # ---------- TSV (bottom, includes H1 first row) ----------
