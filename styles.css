@@ -26,7 +26,7 @@ html, body, .stApp {
 /* Hide the tiny marker itself */
 .section-card {
   height: 0 !important;
-  margin: 0 !important;
+  margin: 20px !important;
   padding: 0 !important;
   border: 0 !important;
   visibility: hidden !important;
