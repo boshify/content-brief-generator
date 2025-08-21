@@ -1,99 +1,156 @@
-:root {
-  --bg: #0b0b0f;
-  --panel: #111118;
-  --text: #e6e6f0;
-  --muted: #a6a6b3;
-  --accent: #6ee7ff;
-  --accent-2: #a78bfa;
-  --border: #1f1f2a;
-  --shadow-soft: 0 8px 22px rgba(110, 231, 255, 0.10), 0 4px 14px rgba(167, 139, 250, 0.08);
+/* === GLOBAL PAGE STYLES === */
+body, .stApp {
+    background-color: #f8f9fa;
+    font-family: "Inter", sans-serif;
 }
 
-html, body, .stApp {
-  background: radial-gradient(1000px 600px at 20% -10%, rgba(110,231,255,0.10), transparent 60%),
-              radial-gradient(800px 500px at 80% -20%, rgba(167,139,250,0.10), transparent 55%),
-              var(--bg) !important;
-  color: var(--text);
-}
-
-/* Section cards (real container) */
+/* === SECTION CARD CONTAINER === */
 .section-card {
-  background: var(--panel);
-  border: 1.5px solid var(--border);
-  border-radius: 14px;
-  padding: 16px 16px 14px 16px;
-  box-shadow: var(--shadow-soft);
-  margin: 16px 2px 22px 2px;
-  position: relative;
-  overflow: hidden;  /* keeps effects within card bounds */
+    border: 1px solid #dcdcdc;
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    padding: 16px;
+    margin-bottom: 24px;
+    background-color: #fff;
+    transition: box-shadow 0.2s ease-in-out;
 }
 
-/* Divider only BETWEEN cards / groups */
-.divider {
-  height: 1px;
-  background: linear-gradient(90deg, rgba(110,231,255,0.28), rgba(167,139,250,0.28));
-  margin: 10px 0 14px 0;
-  border-radius: 999px;
-}
-.divider.subtle { opacity: .35; }
-.section-gap { margin-top: 12px; }
-
-/* Inputs */
-textarea, input, select, label {
-  background: #0f0f16 !important;
-  color: var(--text) !important;
-  border: 1px solid #242437 !important;
-  border-radius: 10px !important;
-  position: relative;
-  z-index: 1;
+.section-card:hover {
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 }
 
-/* Tight arrow cluster */
-.stButton>button {
-  background: #151525;
-  color: var(--text);
-  border: 1px solid #2f2f4a;
-  border-radius: 8px;
-  padding: 4px 8px;
-  margin-right: 6px;
-  box-shadow: inset 0 0 8px rgba(110,231,255,0.12);
-}
-.stButton>button:hover { border-color: #3d3d60; }
-
-.level-chip {
-  display:inline-block;
-  background:#0f0f16;
-  border:1px solid #2f2f4a;
-  padding:4px 10px;
-  border-radius:999px;
-  font-weight:600;
+/* === REMOVE UNNECESSARY DIVIDERS === */
+.section-card hr {
+    display: none;
 }
 
-/* Answer Type radio */
-div[role="radiogroup"] { gap: 6px !important; }
-div[role="radiogroup"] label {
-  background: #151525 !important;
-  border: 1px solid #2f2f4a !important;
-  border-radius: 8px !important;
-  padding: 4px 8px !important;
-  margin-right: 0 !important;
-}
-div[role="radiogroup"] input:checked + div {
-  background: #1d2a45 !important;
-  box-shadow: 0 0 10px rgba(110,231,255,0.22) inset !important;
+/* === HEADER TITLE INSIDE CARDS === */
+.section-heading-title {
+    font-weight: 600;
+    font-size: 1rem;
+    color: #222;
+    margin-bottom: 10px;
 }
 
-/* Sidebar */
-[data-testid="stSidebar"]{
-  background: linear-gradient(180deg, rgba(14,14,22,0.9), rgba(10,10,16,0.9));
-  border-right: 1px solid var(--border);
+/* === ACTION BUTTONS (LEFT ALIGNED) === */
+.section-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px; /* Tighter spacing between buttons */
+    margin-bottom: 10px;
 }
 
-/* Sortables items (remove any default red) */
-.sortable-item, .sortable-item-selected, .st-sortable-item {
-  background: #1a1a28 !important;
-  color: var(--text) !important;
-  border: 1px solid #2a2a3a !important;
-  border-radius: 10px !important;
-  padding: 6px 10px !important;
+.section-actions button {
+    background-color: #f1f3f5;
+    border: 1px solid #ccc;
+    color: #333;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out;
+}
+
+.section-actions button:hover {
+    background-color: #e2e6ea;
+}
+
+/* === LOCK + SUBSEQUENT CHECKBOX === */
+.section-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.section-controls label {
+    font-size: 13px;
+    color: #555;
+}
+
+/* === DROPDOWN FIX (Main | Supplementary | Contextual Border) === */
+.location-dropdown select {
+    width: 180px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    background-color: #fff;
+    color: #333;
+    font-size: 13px;
+    box-shadow: none;
+}
+
+.location-dropdown select:focus {
+    outline: none;
+    border-color: #007bff;
+}
+
+/* === SIDEBAR === */
+.sidebar-container {
+    padding: 10px;
+}
+
+.sidebar-heading {
+    font-weight: 600;
+    font-size: 14px;
+    margin: 8px 0;
+    padding: 4px 6px;
+    background-color: #f7f7f7;
+    border-radius: 5px;
+    cursor: grab;
+    transition: background-color 0.2s;
+}
+
+.sidebar-heading:hover {
+    background-color: #eaeaea;
+}
+
+/* === TSV EXPORT SECTION === */
+.tsv-output-container {
+    margin-top: 30px;
+    padding: 16px;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.tsv-output-container textarea {
+    width: 100%;
+    min-height: 150px;
+    resize: vertical;
+    font-family: monospace;
+    font-size: 13px;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    background-color: #f9f9f9;
+}
+
+/* === MODAL OVERLAY (Generating Outline) === */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+.modal-overlay .spinner {
+    border: 6px solid #e0e0e0;
+    border-top: 6px solid #007bff;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
