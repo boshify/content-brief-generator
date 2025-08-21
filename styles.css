@@ -1,12 +1,12 @@
 :root {
   --bg: #0b0b0f;
-  --panel: #12121a;
+  --panel: #111118;
   --text: #e6e6f0;
   --muted: #a6a6b3;
   --accent: #6ee7ff;
   --accent-2: #a78bfa;
   --border: #1f1f2a;
-  --shadow: 0 14px 34px rgba(110, 231, 255, 0.12), 0 4px 16px rgba(167, 139, 250, 0.10);
+  --shadow: 0 10px 28px rgba(110, 231, 255, 0.12), 0 4px 14px rgba(167, 139, 250, 0.10);
 }
 
 html, body, .stApp {
@@ -16,15 +16,16 @@ html, body, .stApp {
   color: var(--text);
 }
 
-/* Section cards: proper shadow attached, generous spacing between sections */
+/* Section cards: attach shadow/border to the card; generous spacing */
 .section-card {
-  background: #111118;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 16px 16px 14px 16px;
   box-shadow: var(--shadow);
-  margin: 18px 2px 40px 2px;   /* more spacing between heading sections */
+  margin: 22px 2px 36px 2px;         /* more spacing between sections */
   position: relative;
+  overflow: hidden;                   /* keep the glow attached to card edges */
 }
 
 /* Divider */
@@ -43,9 +44,11 @@ textarea, input, select, label {
   color: var(--text) !important;
   border: 1px solid #242437 !important;
   border-radius: 10px !important;
+  position: relative;
+  z-index: 1;
 }
 
-/* Compact left-aligned arrow cluster + small pill */
+/* Tight arrow cluster + small pill; left aligned */
 .stButton>button {
   background: #151525;
   color: var(--text);
@@ -86,9 +89,9 @@ div[role="radiogroup"] input:checked + div {
   border-right: 1px solid var(--border);
 }
 
-/* Sortables default red style override (clean dark pill) */
-.st-sortable-item, .sortable-item, .sortable-item-selected {
-  background: #202030 !important;
+/* streamlit-sortables: neutralize any red styling */
+.sortable-item, .sortable-item-selected, .st-sortable-item {
+  background: #1a1a28 !important;
   color: var(--text) !important;
   border: 1px solid #2a2a3a !important;
   border-radius: 10px !important;
