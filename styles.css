@@ -6,7 +6,7 @@
   --accent: #6ee7ff;
   --accent-2: #a78bfa;
   --border: #1f1f2a;
-  --shadow: 0 6px 28px rgba(110, 231, 255, 0.18), 0 2px 10px rgba(167, 139, 250, 0.12);
+  --shadow: 0 10px 28px rgba(110, 231, 255, 0.14), 0 3px 14px rgba(167, 139, 250, 0.12);
 }
 
 html, body, .stApp {
@@ -16,64 +16,55 @@ html, body, .stApp {
   color: var(--text);
 }
 
-h1, h2, h3 { color: var(--text); }
-
-/* Section cards with proper spacing + normal shadow (no pill clipping) */
+/* Section cards: shadow attached to the card, no pill clipping */
 .section-card {
-  background: linear-gradient(180deg, rgba(18,18,26,0.97), rgba(12,12,18,0.97));
+  background: linear-gradient(180deg, rgba(18,18,26,0.98), rgba(12,12,18,0.98));
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 14px;
   padding: 16px 16px 12px 16px;
   box-shadow: var(--shadow);
-  margin-bottom: 22px; /* extra space between sections */
+  margin-bottom: 28px;         /* more spacing between sections */
+  position: relative;
+  overflow: hidden;            /* keep shadow/background attached */
 }
 
-/* Generic card fallback */
-.card {
-  background: linear-gradient(180deg, rgba(18,18,26,0.95), rgba(12,12,18,0.95));
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 16px;
-  box-shadow: var(--shadow);
-}
-
+/* Generic divider */
 .divider {
   height: 1px;
   background: linear-gradient(90deg, rgba(110,231,255,0.35), rgba(167,139,250,0.35));
-  margin: 14px 0 20px 0;
+  margin: 16px 0 22px 0;
   border-radius: 999px;
 }
 .divider.subtle { opacity: .35; }
-.section-gap { margin-top: 18px; }
+.section-gap { margin-top: 24px; }
 
-/* Inputs: ensure clickability */
+/* Inputs */
 textarea, input, select, label {
   background: #0f0f16 !important;
   color: var(--text) !important;
   border: 1px solid #242437 !important;
-  border-radius: 12px !important;
+  border-radius: 10px !important;
   position: relative;
-  z-index: 1; /* keep above any background glow */
+  z-index: 1;
 }
 
-/* Tight button cluster for arrows */
+/* Tight arrow cluster and level chip */
 .stButton>button {
   background: #151525;
   color: var(--text);
   border: 1px solid #2f2f4a;
-  border-radius: 10px;
-  padding: 6px 10px;
+  border-radius: 8px;
+  padding: 4px 8px;
   box-shadow: inset 0 0 8px rgba(110,231,255,0.12);
   margin-right: 6px;
 }
 .stButton>button:hover { border-color: #3d3d60; }
 
-/* Level pill */
 .level-chip {
   display:inline-block;
   background:#0f0f16;
   border:1px solid #2f2f4a;
-  padding:6px 10px;
+  padding:4px 10px;
   border-radius:999px;
   font-weight:600;
 }
@@ -84,12 +75,12 @@ textarea, input, select, label {
   border-right: 1px solid var(--border);
 }
 
-/* Radio (Answer Type): compact horizontal */
+/* Compact horizontal radio (Answer Type) */
 div[role="radiogroup"] { gap: 6px !important; }
 div[role="radiogroup"] label {
   background: #151525 !important;
   border: 1px solid #2f2f4a !important;
-  border-radius: 10px !important;
+  border-radius: 8px !important;
   padding: 4px 8px !important;
   margin-right: 0 !important;
 }
@@ -98,7 +89,7 @@ div[role="radiogroup"] input:checked + div {
   box-shadow: 0 0 10px rgba(110,231,255,0.22) inset !important;
 }
 
-/* Overlay blocker while waiting */
+/* Full-screen overlay while waiting */
 .overlay {
   position: fixed;
   inset: 0;
@@ -117,8 +108,6 @@ div[role="radiogroup"] input:checked + div {
   box-shadow: var(--shadow);
 }
 .overlay-text { font-size: 18px; color: var(--text); }
-
-/* Big spinner */
 .big-spinner {
   width: 64px; height: 64px;
   border: 6px solid #2a2a3a;
