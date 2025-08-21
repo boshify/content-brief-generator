@@ -16,59 +16,40 @@ html, body, .stApp {
   color: var(--text);
 }
 
-/* --- SECTION CARDS (Fixed border + shadow placement) --- */
-.section-card {
+/* --------------------------------------------
+   CARD FIX
+   Turn the Streamlit block that CONTAINS the
+   .section-card marker into the actual card.
+   This makes the border/shadow wrap all widgets.
+--------------------------------------------- */
+
+/* 1) Style only those Streamlit vertical blocks that have our marker as a direct child */
+[data-testid="stVerticalBlock"]:has(> .section-card),
+[data-testid="stHorizontalBlock"]:has(> .section-card) {
   background: var(--panel);
   border: 1.5px solid var(--border);
   border-radius: 14px;
-  padding: 16px;
-  margin: 20px 2px 28px 2px;
-  position: relative;
-  display: flex;
-  flex-direction: column;
+  padding: 16px 16px 14px 16px;
   box-shadow: var(--shadow-soft);
-  overflow: hidden;
+  margin: 18px 2px 28px 2px;   /* same spacing you liked */
+  position: relative;
+  overflow: hidden;            /* keep inner effects clipped to the card */
 }
 
-/* Fix detached border issue by forcing the border and shadow to wrap content */
-.section-card::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  border-radius: 14px;
-  border: 1.5px solid var(--border);
-  pointer-events: none;
-}
-
-/* --- REMOVE UNNECESSARY DIVIDER ABOVE BUTTONS --- */
-.section-card .divider {
+/* 2) Hide the dummy marker so it doesn’t double-render a border */
+.section-card {
   display: none !important;
 }
 
-/* Buttons: up, down, insert below, lock, subsequent - tightly grouped */
-.section-card .stButton>button {
-  background: #151525;
-  color: var(--text);
-  border: 1px solid #2f2f4a;
-  border-radius: 8px;
-  padding: 4px 8px;
-  margin-right: 4px;
-  margin-bottom: 4px;
-  box-shadow: inset 0 0 8px rgba(110,231,255,0.12);
+/* Divider between groups / after card */
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, rgba(110,231,255,0.28), rgba(167,139,250,0.28));
+  margin: 14px 0 20px 0;
+  border-radius: 999px;
 }
-.section-card .stButton>button:hover {
-  border-color: #3d3d60;
-}
-
-/* Level indicator chip */
-.level-chip {
-  display:inline-block;
-  background:#0f0f16;
-  border:1px solid #2f2f4a;
-  padding:4px 10px;
-  border-radius:999px;
-  font-weight:600;
-}
+.divider.subtle { opacity: .35; }
+.section-gap { margin-top: 20px; }
 
 /* Inputs */
 textarea, input, select, label {
@@ -80,13 +61,35 @@ textarea, input, select, label {
   z-index: 1;
 }
 
-/* Answer Type radio group: compact + highlight selected */
+/* Tight arrow cluster (left aligned) */
+.stButton>button {
+  background: #151525;
+  color: var(--text);
+  border: 1px solid #2f2f4a;
+  border-radius: 8px;
+  padding: 4px 8px;
+  margin-right: 6px;
+  box-shadow: inset 0 0 8px rgba(110,231,255,0.12);
+}
+.stButton>button:hover { border-color: #3d3d60; }
+
+.level-chip {
+  display:inline-block;
+  background:#0f0f16;
+  border:1px solid #2f2f4a;
+  padding:4px 10px;
+  border-radius:999px;
+  font-weight:600;
+}
+
+/* Answer Type radio: compact horizontal, clear selected state */
 div[role="radiogroup"] { gap: 6px !important; }
 div[role="radiogroup"] label {
   background: #151525 !important;
   border: 1px solid #2f2f4a !important;
   border-radius: 8px !important;
   padding: 4px 8px !important;
+  margin-right: 0 !important;
 }
 div[role="radiogroup"] input:checked + div {
   background: #1d2a45 !important;
@@ -94,12 +97,12 @@ div[role="radiogroup"] input:checked + div {
 }
 
 /* Sidebar look */
-[data-testid="stSidebar"] {
+[data-testid="stSidebar"]{
   background: linear-gradient(180deg, rgba(14,14,22,0.9), rgba(10,10,16,0.9));
   border-right: 1px solid var(--border);
 }
 
-/* Sortables list item (neutral, not red) */
+/* Sortables list item (remove default red, keep neutral pill) */
 .sortable-item, .sortable-item-selected, .st-sortable-item {
   background: #1a1a28 !important;
   color: var(--text) !important;
