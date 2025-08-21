@@ -7,47 +7,72 @@
   --accent-2: #a78bfa;
   --border: #1f1f2a;
   --shadow-soft: 0 6px 18px rgba(110, 231, 255, 0.10),
-                  0 3px 10px rgba(167, 139, 250, 0.08);
+                 0 3px 10px rgba(167, 139, 250, 0.08);
 }
 
-/* App background */
 html, body, .stApp {
-  background: radial-gradient(1000px 600px at 20% -10%, rgba(110,231,255,0.10), transparent 60%),
-              radial-gradient(800px 500px at 80% -20%, rgba(167,139,250,0.10), transparent 55%),
-              var(--bg) !important;
+  background:
+    radial-gradient(1000px 600px at 20% -10%, rgba(110,231,255,0.10), transparent 60%),
+    radial-gradient(800px 500px at 80% -20%, rgba(167,139,250,0.10), transparent 55%),
+    var(--bg) !important;
   color: var(--text);
 }
 
-/* SECTION CARD WRAPPER — fixes detached shadow + border */
-.section-wrapper {
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  position: relative;
-  margin-bottom: 28px;
+/* ──────────────────────────────────────────────
+   Section card fix: style the FIRST block AFTER
+   the marker (the real container for the card)
+   ────────────────────────────────────────────── */
+
+/* Hide the tiny marker itself */
+.section-card {
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  visibility: hidden !important;
 }
 
-.section-card {
+/* Attach card chrome to the adjacent Streamlit block after the marker */
+.section-card + [data-testid="stVerticalBlock"],
+.section-card + [data-testid="stHorizontalBlock"],
+.section-card + div {
   background: var(--panel);
   border: 1.5px solid var(--border);
   border-radius: 14px;
   padding: 16px 16px 14px 16px;
   box-shadow: var(--shadow-soft);
+  margin: 18px 2px 28px 2px;
   position: relative;
-  width: 100%;
-  max-width: 900px;
   overflow: hidden;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
 
-/* Subtle hover feedback */
-.section-card:hover {
+/* Hover feedback on the card */
+.section-card + [data-testid="stVerticalBlock"]:hover,
+.section-card + [data-testid="stHorizontalBlock"]:hover,
+.section-card + div:hover {
   box-shadow: 0 8px 24px rgba(110, 231, 255, 0.18),
               0 4px 14px rgba(167, 139, 250, 0.12);
   transform: translateY(-1px);
 }
 
-/* Divider */
+/* Ensure nested inner blocks inside a card don't gain extra borders */
+.section-card + [data-testid="stVerticalBlock"] [data-testid="stVerticalBlock"],
+.section-card + [data-testid="stVerticalBlock"] [data-testid="stHorizontalBlock"],
+.section-card + [data-testid="stHorizontalBlock"] [data-testid="stVerticalBlock"],
+.section-card + [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+}
+
+/* ──────────────────────────────────────────────
+   Existing visuals you liked (kept intact)
+   ────────────────────────────────────────────── */
+
 .divider {
   height: 1px;
   background: linear-gradient(90deg, rgba(110,231,255,0.28), rgba(167,139,250,0.28));
@@ -57,7 +82,6 @@ html, body, .stApp {
 .divider.subtle { opacity: .35; }
 .section-gap { margin-top: 20px; }
 
-/* Inputs */
 textarea, input, select, label {
   background: #0f0f16 !important;
   color: var(--text) !important;
@@ -67,7 +91,6 @@ textarea, input, select, label {
   z-index: 1;
 }
 
-/* Tight arrow cluster (left aligned) */
 .stButton>button {
   background: #151525;
   color: var(--text);
@@ -79,7 +102,6 @@ textarea, input, select, label {
 }
 .stButton>button:hover { border-color: #3d3d60; }
 
-/* Level chip */
 .level-chip {
   display:inline-block;
   background:#0f0f16;
@@ -89,7 +111,6 @@ textarea, input, select, label {
   font-weight:600;
 }
 
-/* Answer Type radio: compact horizontal, clear selected state */
 div[role="radiogroup"] { gap: 6px !important; }
 div[role="radiogroup"] label {
   background: #151525 !important;
@@ -103,13 +124,11 @@ div[role="radiogroup"] input:checked + div {
   box-shadow: 0 0 10px rgba(110,231,255,0.22) inset !important;
 }
 
-/* Sidebar look */
 [data-testid="stSidebar"]{
   background: linear-gradient(180deg, rgba(14,14,22,0.9), rgba(10,10,16,0.9));
   border-right: 1px solid var(--border);
 }
 
-/* Sortables list item */
 .sortable-item, .sortable-item-selected, .st-sortable-item {
   background: #1a1a28 !important;
   color: var(--text) !important;
