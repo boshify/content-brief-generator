@@ -1,3 +1,6 @@
+/* =========================================================
+   THEME TOKENS (kept exactly like your best version)
+   ========================================================= */
 :root {
   --bg: #0b0b0f;
   --panel: #111118;
@@ -6,21 +9,61 @@
   --accent: #6ee7ff;
   --accent-2: #a78bfa;
   --border: #1f1f2a;
-  --shadow-soft: 0 6px 18px rgba(110, 231, 255, 0.10), 0 3px 10px rgba(167, 139, 250, 0.08);
+  --shadow-soft: 0 6px 18px rgba(110, 231, 255, 0.10),
+                 0 3px 10px rgba(167, 139, 250, 0.08);
 }
 
 html, body, .stApp {
-  background: radial-gradient(1000px 600px at 20% -10%, rgba(110,231,255,0.10), transparent 60%),
-              radial-gradient(800px 500px at 80% -20%, rgba(167,139,250,0.10), transparent 55%),
-              var(--bg) !important;
+  background:
+    radial-gradient(1000px 600px at 20% -10%, rgba(110,231,255,0.10), transparent 60%),
+    radial-gradient(800px 500px at 80% -20%, rgba(167,139,250,0.10), transparent 55%),
+    var(--bg) !important;
   color: var(--text);
 }
 
 /* =========================================================
-   SECTION CARD BORDER/SHADOW — innermost block only
+   SECTION CARD BORDER/SHADOW — TWO LAYERS OF SAFETY
+   1) Preferred precise mode (if you add `.section-card-wrap`)
+   2) Fallback mode (current `.section-card` marker)
    ========================================================= */
 
-/* Apply card styling to any Streamlit block that contains a marker */
+/* --- 1) PREFERRED: style only the Streamlit block that DIRECTLY contains `.section-card-wrap` --- */
+[data-testid="stVerticalBlock"] > .section-card-wrap,
+[data-testid="stHorizontalBlock"] > .section-card-wrap {
+  /* The wrapper is just a marker; we style the parent with :has below */
+  display: none !important;
+}
+
+/* Parent-of-wrapper gets the card chrome */
+[data-testid="stVerticalBlock"]:has(> .section-card-wrap),
+[data-testid="stHorizontalBlock"]:has(> .section-card-wrap) {
+  background: var(--panel);
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 16px 14px 16px;
+  box-shadow: var(--shadow-soft);
+  margin: 18px 2px 28px 2px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* If an ancestor also happens to contain a nested parent-of-wrapper, strip styling there. */
+[data-testid="stVerticalBlock"]:has([data-testid="stVerticalBlock"]:has(> .section-card-wrap)),
+[data-testid="stHorizontalBlock"]:has([data-testid="stHorizontalBlock"]:has(> .section-card-wrap)) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+}
+
+/* --- 2) FALLBACK: if you ONLY emit `.section-card` (your current code) --- */
+
+/* Hide the legacy marker so it doesn’t render a stray box */
+.section-card { display: none !important; }
+
+/* Apply card chrome to any Streamlit block that contains a `.section-card` somewhere inside */
 [data-testid="stVerticalBlock"]:has(.section-card),
 [data-testid="stHorizontalBlock"]:has(.section-card) {
   background: var(--panel);
@@ -33,9 +76,9 @@ html, body, .stApp {
   overflow: hidden;
 }
 
-/* RESET card styling for ancestor blocks that contain a nested block
-   which itself has a section-card; this leaves ONLY the innermost
-   block styled like a card (fixes "whole page" border). */
+/* Now *unset* that chrome for any ancestor that also contains a nested block
+   which itself contains a `.section-card`. This ensures ONLY the innermost
+   block keeps the border/shadow (fixes "whole page" border after first Add). */
 [data-testid="stVerticalBlock"]:has([data-testid="stVerticalBlock"]:has(.section-card)),
 [data-testid="stHorizontalBlock"]:has([data-testid="stHorizontalBlock"]:has(.section-card)) {
   background: transparent !important;
@@ -46,12 +89,9 @@ html, body, .stApp {
   overflow: visible !important;
 }
 
-/* Hide the marker element so it doesn't render a duplicate box */
-.section-card { display: none !important; }
-
-/* ====== Your existing visuals (unchanged) ====== */
-
-/* Divider between groups / after card */
+/* =========================================================
+   DIVIDERS & SPACING (unchanged)
+   ========================================================= */
 .divider {
   height: 1px;
   background: linear-gradient(90deg, rgba(110,231,255,0.28), rgba(167,139,250,0.28));
@@ -61,7 +101,9 @@ html, body, .stApp {
 .divider.subtle { opacity: .35; }
 .section-gap { margin-top: 20px; }
 
-/* Inputs */
+/* =========================================================
+   INPUTS / BUTTONS / CHIP (unchanged)
+   ========================================================= */
 textarea, input, select, label {
   background: #0f0f16 !important;
   color: var(--text) !important;
@@ -71,7 +113,6 @@ textarea, input, select, label {
   z-index: 1;
 }
 
-/* Tight arrow cluster (left aligned) */
 .stButton>button {
   background: #151525;
   color: var(--text);
@@ -92,7 +133,9 @@ textarea, input, select, label {
   font-weight:600;
 }
 
-/* Answer Type radio: compact horizontal, clear selected state */
+/* =========================================================
+   ANSWER TYPE RADIO (unchanged)
+   ========================================================= */
 div[role="radiogroup"] { gap: 6px !important; }
 div[role="radiogroup"] label {
   background: #151525 !important;
@@ -106,7 +149,9 @@ div[role="radiogroup"] input:checked + div {
   box-shadow: 0 0 10px rgba(110,231,255,0.22) inset !important;
 }
 
-/* Sidebar look */
+/* =========================================================
+   SIDEBAR (unchanged)
+   ========================================================= */
 [data-testid="stSidebar"]{
   background: linear-gradient(180deg, rgba(14,14,22,0.9), rgba(10,10,16,0.9));
   border-right: 1px solid var(--border);
@@ -121,7 +166,9 @@ div[role="radiogroup"] input:checked + div {
   padding: 6px 10px !important;
 }
 
-/* Full-screen overlay during webhook */
+/* =========================================================
+   FULL-SCREEN OVERLAY (unchanged)
+   ========================================================= */
 .overlay {
   position: fixed;
   inset: 0;
