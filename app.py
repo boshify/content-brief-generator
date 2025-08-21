@@ -4,16 +4,16 @@ import uuid
 import requests
 import streamlit as st
 
-# Sidebar DnD (works with old/new APIs)
+# Optional: sidebar drag-and-drop (pip install streamlit-sortables)
 try:
-    from streamlit_sortables import sort_items  # pip install streamlit-sortables
+    from streamlit_sortables import sort_items
     HAS_SORT = True
 except Exception:
     HAS_SORT = False
 
 st.set_page_config(page_title="Content Brief Generator", layout="wide")
 
-# ---- Load external styles ----
+# ---------- Load styles ----------
 def load_css(path: str = "styles.css"):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -23,11 +23,10 @@ def load_css(path: str = "styles.css"):
 
 load_css()
 
-# --- Config ---
+# ---------- Config ----------
 WEBHOOK_URL = st.secrets.get("N8N_WEBHOOK_URL") or os.getenv("N8N_WEBHOOK_URL")
 AUTH_HEADER = st.secrets.get("N8N_AUTH_HEADER") or os.getenv("N8N_AUTH_HEADER")
 
-# --- Constants ---
 GROUPS = ["MainContent", "ContextualBorder", "SupplementaryContent"]
 GROUP_LABELS = {
     "MainContent": "Main Content",
@@ -35,30 +34,29 @@ GROUP_LABELS = {
     "SupplementaryContent": "Supplementary Content",
 }
 ANSWER_TYPES = ["Auto", "EDA", "DDA", "L+LD", "S L+LD", "EOE"]
-HEADING_LEVELS = ["H2", "H3", "H4", "H5", "H6"]
+LEVELS = ["H2", "H3", "H4", "H5", "H6"]
 
-# --- Session bootstrap ---
+# ---------- Session bootstrap ----------
 st.session_state.setdefault("session_id", str(uuid.uuid4()))
-st.session_state.setdefault("sections", {g: [] for g in GROUPS})
+st.session_state.setdefault("sections", {g: [] for g in GROUPS})  # per-location lists of dicts
 st.session_state.setdefault("H1_text", "")
 st.session_state.setdefault("H1_lock", False)
 st.session_state.setdefault("feedback", "")
 st.session_state.setdefault("hydrated_once", False)
-st.session_state.setdefault("_h1_widget_rendered", False)
-st.session_state.setdefault("_h1_user_initialized", False)
-st.session_state.setdefault("_waiting", False)  # overlay blocker
+st.session_state.setdefault("_waiting", False)  # overlay while contacting webhook
 
-def _new_section(heading="", level="H2", content="", answer_type="Auto", lock=False, gen_subsequent=False):
+def _new_section(heading_name="", level="H2", description="", answer_type="Auto", lock=False, gen_subsequent=False):
     return {
         "id": str(uuid.uuid4()),
-        "heading": heading or "",
-        "level": level if level in HEADING_LEVELS else "H2",
-        "content": content or "",
+        "heading": level if level in LEVELS else "H2",
+        "heading_name": heading_name or "",
+        "description": description or "",
         "answer_type": answer_type if answer_type in ANSWER_TYPES else "Auto",
         "lock": bool(lock),
-        "gen_subsequent": bool(gen_subsequent),
+        "subsequent": bool(gen_subsequent),
     }
 
+# ---------- Hydration from webhook (one-time pre-widget) ----------
 def _hydrate_from_pending():
     if st.session_state.get("hydrated_once"):
         return
@@ -66,25 +64,21 @@ def _hydrate_from_pending():
     if not pending:
         return
 
+    # Do not overwrite user's H1 if already set
     if not st.session_state.get("H1_text"):
         st.session_state["H1_text"] = pending.get("H1", "") or ""
 
     for group in GROUPS:
-        existing = st.session_state["sections"][group]
-        incoming = [
-            _new_section(
-                heading=item.get("H2", ""),
-                level=item.get("HeadingLevel", "H2"),
-                content=item.get("Methodology", ""),
-                answer_type=item.get("Answer Type", "Auto"),
+        incoming = pending.get(group, []) or []
+        for item in incoming:
+            st.session_state["sections"][group].append(
+                _new_section(
+                    heading_name=item.get("H2", ""),
+                    level=item.get("HeadingLevel", "H2"),
+                    description=item.get("Methodology", ""),
+                    answer_type=item.get("Answer Type", "Auto"),
+                )
             )
-            for item in pending.get(group, [])
-        ]
-        if existing:
-            existing.extend(incoming)
-        else:
-            st.session_state["sections"][group] = incoming
-
     if "feedback" in pending and not st.session_state.get("feedback"):
         st.session_state["feedback"] = pending["feedback"]
 
@@ -92,6 +86,7 @@ def _hydrate_from_pending():
 
 _hydrate_from_pending()
 
+# ---------- HTTP ----------
 def _build_headers():
     headers = {"Content-Type": "application/json"}
     if AUTH_HEADER:
@@ -147,8 +142,7 @@ def call_n8n(payload: dict) -> dict:
             raw = r.json()
         except json.JSONDecodeError:
             raw = r.text.strip()
-        data = _normalize_n8n_response(raw)
-        return data
+        return _normalize_n8n_response(raw)
     finally:
         st.session_state["_waiting"] = False
 
@@ -161,8 +155,8 @@ def _safe_rerun():
         except Exception:
             pass
 
-# Sidebar DnD helper
-def _dnd_new_order(labels, ids, key):
+# ---------- Sidebar DnD helper ----------
+def _dnd(labels, ids, key):
     if not HAS_SORT or not labels:
         return None
     try:
@@ -171,266 +165,209 @@ def _dnd_new_order(labels, ids, key):
     except TypeError:
         result = sort_items(labels, direction="vertical", key=key)
         new_labels = result[0] if isinstance(result, tuple) else result
-        if new_labels == labels:
-            return None
-        used = [0] * len(labels)
-        new_indices = []
+        if new_labels == labels: return None
+        used = [0]*len(labels)
+        idxs = []
         for lab in new_labels:
-            idx = None
-            for i, orig in enumerate(labels):
-                if lab == orig and not used[i]:
-                    idx = i; used[i] = 1; break
-            if idx is None:
-                idx = labels.index(lab)
-            new_indices.append(idx)
-        return [ids[i] for i in new_indices]
+            i = None
+            for j, orig in enumerate(labels):
+                if lab == orig and not used[j]:
+                    i = j; used[j]=1; break
+            if i is None:
+                i = labels.index(lab)
+            idxs.append(i)
+        return [ids[i] for i in idxs]
 
-def _reorder_by_ids(group, new_id_order):
+# ---------- Utilities ----------
+def _reorder_group_by_ids(group, new_id_order):
     id_to_item = {s["id"]: s for s in st.session_state["sections"][group]}
     st.session_state["sections"][group] = [id_to_item[i] for i in new_id_order if i in id_to_item]
 
-def _move(group, idx, delta):
-    lst = st.session_state["sections"][group]
-    new_idx = max(0, min(len(lst) - 1, idx + delta))
+def _move_item(group, idx, delta):
+    items = st.session_state["sections"][group]
+    new_idx = max(0, min(len(items)-1, idx+delta))
     if new_idx != idx:
-        lst[idx], lst[new_idx] = lst[new_idx], lst[idx]
+        items[idx], items[new_idx] = items[new_idx], items[idx]
 
-def _insert(group, idx):
-    st.session_state["sections"][group].insert(idx + 1, _new_section())
+def _insert_below(group, idx):
+    st.session_state["sections"][group].insert(idx+1, _new_section())
 
-def _append(group):
+def _append_section(group):
     st.session_state["sections"][group].append(_new_section())
 
-def _remove(group, idx):
-    lst = st.session_state["sections"][group]
-    if 0 <= idx < len(lst):
-        lst.pop(idx)
+def _remove_item(group, idx):
+    items = st.session_state["sections"][group]
+    if 0 <= idx < len(items):
+        items.pop(idx)
 
-def _indent_str(level):
-    n = max(0, HEADING_LEVELS.index(level))
-    return " " * n  # em spaces (visual indent)
+def _level_raise(level):
+    i = LEVELS.index(level)
+    return LEVELS[max(i-1, 0)]
 
-def _merge_response_into_state(resp):
-    if not resp:
-        return
-    if not st.session_state.get("_h1_user_initialized") and not st.session_state.get("_h1_widget_rendered"):
-        st.session_state["H1_text"] = resp.get("H1", st.session_state.get("H1_text", "")) or st.session_state.get("H1_text", "")
+def _level_lower(level):
+    i = LEVELS.index(level)
+    return LEVELS[min(i+1, len(LEVELS)-1)]
 
-    for group in GROUPS:
-        incoming = resp.get(group, [])
-        current = st.session_state["sections"][group]
-        max_len = max(len(current), len(incoming))
-        new_list = []
-        for i in range(max_len):
-            if i < len(current) and (i >= len(incoming)):
-                new_list.append(current[i]); continue
-            if i >= len(current) and (i < len(incoming)):
-                inc = incoming[i]
-                new_list.append(
-                    _new_section(
-                        heading=inc.get("H2", ""),
-                        level=inc.get("HeadingLevel", "H2"),
-                        content=inc.get("Methodology", ""),
-                        answer_type=inc.get("Answer Type", "Auto"),
-                    )
-                ); continue
-            cur = current[i]; inc = incoming[i]
-            if cur.get("lock"):
-                new_list.append(cur)
-            else:
-                new_list.append({
-                    **cur,
-                    "heading": inc.get("H2", cur.get("heading", "")),
-                    "level": inc.get("HeadingLevel", cur.get("level", "H2")),
-                    "content": inc.get("Methodology", cur.get("content", "")),
-                    "answer_type": inc.get("Answer Type", cur.get("answer_type", "Auto")),
-                    "lock": cur.get("lock", False),
-                    "gen_subsequent": cur.get("gen_subsequent", False),
-                })
-        st.session_state["sections"][group] = new_list
+def _indent(level):
+    return " " * LEVELS.index(level)
 
-# Snapshot used for Debug/Send/TSV (but sidebar now reads LIVE widget values first)
+# ---------- Build snapshot (SINGLE SOURCE OF TRUTH for sidebar + payload + TSV) ----------
 def build_snapshot():
     snap = {
         "session_id": st.session_state["session_id"],
         "H1": {"text": st.session_state.get("H1_text", ""), "lock": st.session_state.get("H1_lock", False)},
         "feedback": st.session_state.get("feedback", ""),
+        "MainContent": [],
+        "ContextualBorder": [],
+        "SupplementaryContent": [],
     }
     for g in GROUPS:
-        arr = []
         for sec in st.session_state["sections"][g]:
-            arr.append({
-                "H2": sec["heading"],
-                "Methodology": sec["content"],
-                "HeadingLevel": sec["level"],
-                "Answer Type": sec["answer_type"],
-                "lock": sec["lock"],
-                **({"Subsequent Sections?": "Yes" if sec["gen_subsequent"] else "No"} if sec["lock"] else {}),
-                "_id": sec["id"],
+            # Always prefer latest widget values if present
+            hname = st.session_state.get(f"{g}_{sec['id']}_heading_name", sec["heading_name"])
+            desc  = st.session_state.get(f"{g}_{sec['id']}_desc", sec["description"])
+            atype = st.session_state.get(f"{g}_{sec['id']}_atype", sec["answer_type"])
+            lvl   = sec["heading"]
+            locked = st.session_state.get(f"{g}_{sec['id']}_lock", sec["lock"])
+            subq   = st.session_state.get(f"{g}_{sec['id']}_subseq", sec["subsequent"])
+
+            snap[g].append({
+                "H2": hname,
+                "Methodology": desc,
+                "HeadingLevel": lvl,
+                "Answer Type": atype,
+                "lock": locked,
+                **({"Subsequent Sections?": "Yes" if subq else "No"} if locked else {}),
+                "_id": sec["id"],  # keep for sidebar mapping
             })
-        snap[g] = arr
     return snap
 
-# ============================
-# Page content (H1 at top)
-# ============================
+# ---------- UI ----------
 st.title("Content Brief Generator")
 
-# H1 row
+# H1 row (top)
 c1, c2 = st.columns([0.8, 0.2])
 with c1:
     st.text_input("H1", key="H1_text", placeholder="Primary page title (H1)")
-    st.session_state["_h1_widget_rendered"] = True
-    if st.session_state.get("H1_text", "").strip():
-        st.session_state["_h1_user_initialized"] = True
 with c2:
     st.checkbox("Lock H1", key="H1_lock")
 
-# level helpers
-def _level_raise_toward_h2(level):
-    idx = HEADING_LEVELS.index(level)
-    return HEADING_LEVELS[max(idx - 1, 0)]
+# Groups render
+def render_group(group):
+    st.subheader(GROUP_LABELS[group])
+    if st.button("➕ Add Section", key=f"add_{group}"):
+        _append_section(group); _safe_rerun()
 
-def _level_lower_toward_h6(level):
-    idx = HEADING_LEVELS.index(level)
-    return HEADING_LEVELS[min(idx + 1, len(HEADING_LEVELS) - 1)]
+    items = st.session_state["sections"][group]
 
-def render_group(gname: str):
-    st.subheader(GROUP_LABELS[gname])
-
-    # Add section
-    if st.button("➕ Add Section", key=f"add_{gname}"):
-        _append(gname); _safe_rerun()
-
-    items = st.session_state["sections"][gname]
-
-    # Section cards
     for idx, sec in enumerate(items):
         sid = sec["id"]
         st.markdown("<div class='section-card'>", unsafe_allow_html=True)
 
-        # Arrow row (no divider above anymore)
-        top = st.columns([0.10, 0.10, 0.10, 0.12, 1, 0.32, 0.08], gap="small")
-        if top[0].button("〈", key=f"dec_{gname}_{sid}", help="Raise level toward H2"):
-            sec["level"] = _level_raise_toward_h2(sec["level"]); _safe_rerun()
-        if top[1].button("＝", key=f"eq_{gname}_{sid}", help="Reset to H2"):
-            sec["level"] = "H2"; _safe_rerun()
-        if top[2].button("〉", key=f"inc_{gname}_{sid}", help="Lower level toward H6"):
-            sec["level"] = _level_lower_toward_h6(sec["level"]); _safe_rerun()
-        top[3].markdown(f"<div class='level-chip'>{sec['level']}</div>", unsafe_allow_html=True)
+        # Top control row (no divider above; CSS styles the card)
+        t = st.columns([0.08, 0.08, 0.08, 0.12, 1, 0.30, 0.08], gap="small")
+        if t[0].button("〈", key=f"dec_{group}_{sid}", help="Raise level toward H2"):
+            sec["heading"] = _level_raise(sec["heading"]); _safe_rerun()
+        if t[1].button("＝", key=f"eq_{group}_{sid}", help="Reset to H2"):
+            sec["heading"] = "H2"; _safe_rerun()
+        if t[2].button("〉", key=f"inc_{group}_{sid}", help="Lower level toward H6"):
+            sec["heading"] = _level_lower(sec["heading"]); _safe_rerun()
+        t[3].markdown(f"<div class='level-chip'>{sec['heading']}</div>", unsafe_allow_html=True)
 
-        with top[5]:
+        with t[5]:
             loc = st.selectbox(
                 "Location",
                 GROUPS,
-                index=GROUPS.index(gname),
-                key=f"loc_{gname}_{sid}",
+                index=GROUPS.index(group),
+                key=f"loc_{group}_{sid}",
                 label_visibility="collapsed",
                 format_func=lambda v: GROUP_LABELS[v],
             )
-            if loc != gname:
-                moved = st.session_state["sections"][gname].pop(idx)
+            if loc != group:
+                moved = st.session_state["sections"][group].pop(idx)
                 st.session_state["sections"][loc].append(moved); _safe_rerun()
-        with top[6]:
-            if st.button("🗑️", key=f"rm_{gname}_{sid}", help="Remove section"):
-                _remove(gname, idx); _safe_rerun()
+        with t[6]:
+            if st.button("🗑️", key=f"rm_{group}_{sid}", help="Remove section"):
+                _remove_item(group, idx); _safe_rerun()
 
-        # Inputs (LIVE-sync)
-        sec["heading"] = st.text_input("Heading Name", key=f"{gname}_{sid}_heading",
-                                       value=sec["heading"], placeholder="Section title…")
-        sec["content"] = st.text_area("Description", key=f"{gname}_{sid}_content",
-                                      value=sec["content"], height=160)
-
-        # Answer Type
+        # Fields — bind to session_state keys so snapshot sees *current* values
+        sec["heading_name"] = st.text_input(
+            "Heading Name", key=f"{group}_{sid}_heading_name", value=sec["heading_name"], placeholder="Section title…"
+        )
+        sec["description"] = st.text_area(
+            "Description", key=f"{group}_{sid}_desc", value=sec["description"], height=140
+        )
         sec["answer_type"] = st.radio(
-            "Answer Type",
-            ANSWER_TYPES,
-            key=f"{gname}_{sid}_atype",
-            index=ANSWER_TYPES.index(sec["answer_type"]),
-            horizontal=True
+            "Answer Type", ANSWER_TYPES, key=f"{group}_{sid}_atype",
+            index=ANSWER_TYPES.index(sec["answer_type"]), horizontal=True
         )
 
-        # Bottom controls — tighter spacing
-        bottom = st.columns([0.14, 0.14, 0.20, 0.22, 0.22], gap="small")
-        with bottom[0]:
-            if st.button("⬆️ Up", key=f"up_{gname}_{sid}"):
-                _move(gname, idx, -1); _safe_rerun()
-        with bottom[1]:
-            if st.button("⬇️ Down", key=f"down_{gname}_{sid}"):
-                _move(gname, idx, 1); _safe_rerun()
-        with bottom[2]:
-            if st.button("➕ Insert Below", key=f"ins_{gname}_{sid}"):
-                _insert(gname, idx); _safe_rerun()
-        with bottom[3]:
-            sec["lock"] = st.checkbox("Lock Section", key=f"{gname}_{sid}_lock", value=sec["lock"])
-        with bottom[4]:
+        # Bottom controls — tight cluster
+        b = st.columns([0.14, 0.14, 0.20, 0.22, 0.22], gap="small")
+        with b[0]:
+            if st.button("⬆️ Up", key=f"up_{group}_{sid}"):
+                _move_item(group, idx, -1); _safe_rerun()
+        with b[1]:
+            if st.button("⬇️ Down", key=f"down_{group}_{sid}"):
+                _move_item(group, idx, 1); _safe_rerun()
+        with b[2]:
+            if st.button("➕ Insert Below", key=f"ins_{group}_{sid}"):
+                _insert_below(group, idx); _safe_rerun()
+        with b[3]:
+            sec["lock"] = st.checkbox("Lock Section", key=f"{group}_{sid}_lock", value=sec["lock"])
+        with b[4]:
             if sec["lock"]:
-                sec["gen_subsequent"] = st.checkbox("Generate Subsequent Sections?",
-                                                    key=f"{gname}_{sid}_gsub", value=sec["gen_subsequent"])
+                sec["subsequent"] = st.checkbox("Generate Subsequent Sections?", key=f"{group}_{sid}_subseq", value=sec["subsequent"])
             else:
-                st.session_state[f"{gname}_{sid}_gsub"] = sec["gen_subsequent"]
+                st.session_state[f"{group}_{sid}_subseq"] = sec["subsequent"]
 
         st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("<div class='divider subtle section-gap'></div>", unsafe_allow_html=True)
 
-# Render groups first (so sidebar reads freshest state)
+# Render all groups
 for g in GROUPS:
     render_group(g)
 
-# Snapshot for Debug/Send/TSV
-snapshot = {
-    "session_id": st.session_state["session_id"],
-    "H1": {"text": st.session_state.get("H1_text", ""), "lock": st.session_state.get("H1_lock", False)},
-    "feedback": st.session_state.get("feedback", ""),
-}
-for g in GROUPS:
-    arr = []
-    for sec in st.session_state["sections"][g]:
-        arr.append({
-            "H2": sec["heading"],
-            "Methodology": sec["content"],
-            "HeadingLevel": sec["level"],
-            "Answer Type": sec["answer_type"],
-            "lock": sec["lock"],
-            **({"Subsequent Sections?": "Yes" if sec["gen_subsequent"] else "No"} if sec["lock"] else {}),
-            "_id": sec["id"],
-        })
-    snapshot[g] = arr
+# Build snapshot AFTER rendering (guaranteed latest titles/values)
+snapshot = build_snapshot()
 
-# ============================
-# Sidebar: LIVE widget titles -> DnD -> page reorder
-# ============================
+# ---------- Sidebar: uses SNAPSHOT for labels + DnD reorder ----------
 with st.sidebar:
     st.markdown("## Outline Overview")
     st.caption("Drag to reorder headings. Use 〈 and 〉 to change levels. H1 is edited at the top.")
 
     for g in GROUPS:
         st.markdown(f"**{GROUP_LABELS[g]}**")
-        items = st.session_state["sections"][g]
+        items = snapshot[g]
         if not items:
             st.caption("No sections yet."); st.markdown("---"); continue
 
-        labels, ids = [], []
-        for s in items:
-            live = st.session_state.get(f"{g}_{s['id']}_heading", s["heading"])
-            labels.append(f"{_indent_str(s['level'])}{(live or '(untitled)').strip()}")
-            ids.append(s["id"])
+        labels = [f"{_indent(it['HeadingLevel'])}{(it['H2'] or '(untitled)').strip()}" for it in items]
+        ids = [it["_id"] for it in items]
 
-        new_order = _dnd_new_order(labels, ids, key=f"sidebar_sort_{g}")
+        new_order = _dnd(labels, ids, key=f"sidebar_sort_{g}")
         if new_order:
-            _reorder_by_ids(g, new_order)
+            _reorder_group_by_ids(g, new_order)
             _safe_rerun()
         st.markdown("---")
 
     st.text_area("Overall feedback", key="feedback", placeholder="Optional suggestions…", height=120)
+
     with st.form("sidebar_submit"):
         sent = st.form_submit_button("Send / Update", use_container_width=True)
 
-    # ✅ Debug restored and visible
     with st.expander("Debug (optional)"):
-        st.json(snapshot)
+        # Show EXACT payload we will send (without _id)
+        preview = {
+            "session_id": snapshot["session_id"],
+            "H1": snapshot["H1"],
+            "feedback": snapshot["feedback"],
+        }
+        for g in GROUPS:
+            preview[g] = [{k: v for k, v in d.items() if k != "_id"} for d in snapshot[g]]
+        st.json(preview)
 
-# --- Send/Update handler ---
+# ---------- Send / Update ----------
 if sent:
     payload = {
         "session_id": snapshot["session_id"],
@@ -441,21 +378,51 @@ if sent:
         "SupplementaryContent": [{k: v for k, v in d.items() if k != "_id"} for d in snapshot["SupplementaryContent"]],
     }
     resp = call_n8n(payload)
-    _merge_response_into_state(resp or {})
+    # Merge response respecting locks + H1 rule
+    if resp:
+        # Do not overwrite existing H1 if user has set text already
+        if not st.session_state.get("H1_text"):
+            st.session_state["H1_text"] = resp.get("H1", st.session_state["H1_text"]) or st.session_state["H1_text"]
+        for g in GROUPS:
+            inc = resp.get(g, []) or []
+            cur = st.session_state["sections"][g]
+            max_len = max(len(cur), len(inc))
+            merged = []
+            for i in range(max_len):
+                if i < len(cur) and i >= len(inc):
+                    merged.append(cur[i]); continue
+                if i >= len(cur) and i < len(inc):
+                    item = inc[i]
+                    merged.append(_new_section(
+                        heading_name=item.get("H2", ""),
+                        level=item.get("HeadingLevel", "H2"),
+                        description=item.get("Methodology", ""),
+                        answer_type=item.get("Answer Type", "Auto"),
+                    )); continue
+                c = cur[i]; r = inc[i]
+                if c.get("lock"):
+                    merged.append(c)
+                else:
+                    merged.append({
+                        **c,
+                        "heading_name": r.get("H2", c["heading_name"]),
+                        "heading": r.get("HeadingLevel", c["heading"]),
+                        "description": r.get("Methodology", c["description"]),
+                        "answer_type": r.get("Answer Type", c["answer_type"]),
+                    })
+            st.session_state["sections"][g] = merged
     _safe_rerun()
 
-# ============================
-# TSV (bottom of page)
-# ============================
+# ---------- TSV (bottom, includes H1 first row) ----------
 rows = []
 rows.append(("H1", (st.session_state.get("H1_text") or "").strip(), "", "", "Title"))
 for g in GROUPS:
     for sec in st.session_state["sections"][g]:
         location = "Main" if g == "MainContent" else ("Contextual Border" if g == "ContextualBorder" else "Supplementary")
         rows.append((
-            sec["level"],
-            (sec["heading"] or "").strip(),
-            (sec["content"] or "").replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n").strip(),
+            sec["heading"],
+            (sec["heading_name"] or "").strip(),
+            (sec["description"] or "").replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n").strip(),
             sec["answer_type"],
             location,
         ))
