@@ -4,7 +4,7 @@ import uuid
 import requests
 import streamlit as st
 
-# Optional drag & drop helper (works with both new/old APIs)
+# Optional drag & drop helper (sidebar only). Works with old/new APIs.
 try:
     from streamlit_sortables import sort_items  # pip install streamlit-sortables
     HAS_SORT = True
@@ -60,15 +60,18 @@ def _new_section(heading="", level="H2", content="", answer_type="Auto", lock=Fa
     }
 
 def _hydrate_from_pending():
+    """Apply incoming values BEFORE widgets are created (one-time)."""
     if st.session_state.get("hydrated_once"):
         return
     pending = st.session_state.pop("_pending_hydration", None)
     if not pending:
         return
 
+    # Ignore webhook H1 if user already set one
     if not st.session_state.get("H1_text"):
         st.session_state["H1_text"] = pending.get("H1", "") or ""
 
+    # Append webhook sections to any user-created ones (do not overwrite)
     for group in GROUPS:
         existing = st.session_state["sections"][group]
         incoming = [
@@ -87,6 +90,7 @@ def _hydrate_from_pending():
 
     if "feedback" in pending and not st.session_state.get("feedback"):
         st.session_state["feedback"] = pending["feedback"]
+
     st.session_state["hydrated_once"] = True
 
 _hydrate_from_pending()
@@ -118,6 +122,7 @@ def _normalize_n8n_response(resp):
         "SupplementaryContent": data.get("SupplementaryContent", []),
     }
 
+# --- Full-screen overlay while waiting ---
 def _overlay_blocker():
     if st.session_state.get("_waiting"):
         st.markdown(
@@ -133,6 +138,7 @@ def _overlay_blocker():
         )
 
 def call_n8n(payload: dict) -> dict:
+    """Send payload to n8n and return normalized dict (timeout 180s)."""
     if not WEBHOOK_URL:
         st.error("N8N webhook URL is not configured. Set N8N_WEBHOOK_URL.")
         return {}
@@ -140,7 +146,6 @@ def call_n8n(payload: dict) -> dict:
     st.session_state["_waiting"] = True
     _overlay_blocker()
     try:
-        # ⬆️ timeout to 180s
         r = requests.post(WEBHOOK_URL, json=payload, timeout=180, headers=_build_headers())
         r.raise_for_status()
         try:
@@ -161,27 +166,34 @@ def _safe_rerun():
         except Exception:
             pass
 
-# ---- DnD helper (supports both sortables APIs) ----
+# ---- DnD helper (sidebar only; supports old/new sortables APIs) ----
 def _dnd_new_order(labels, ids, key):
     if not HAS_SORT or not labels:
         return None
     try:
-        new_labels, new_ids = sort_items(labels, ids=ids, direction="vertical", key=key)
+        # Newer API (supports ids=)
+        _labels, new_ids = sort_items(labels, ids=ids, direction="vertical", key=key)
         return new_ids if new_ids != ids else None
     except TypeError:
-        aug = [f"\u2063{ix}\u2063{labels[ix]}" for ix in range(len(labels))]
-        result = sort_items(aug, direction="vertical", key=key)
-        new_aug = result[0] if isinstance(result, tuple) else result
-        if new_aug == aug:
+        # Older API: returns reordered labels only; compute mapping without injecting indices
+        result = sort_items(labels, direction="vertical", key=key)
+        new_labels = result[0] if isinstance(result, tuple) else result
+        if new_labels == labels:
             return None
+        used = [0] * len(labels)
         new_indices = []
-        for s in new_aug:
-            rest = s[1:]
-            i_str, _, _ = rest.partition("\u2063")
-            new_indices.append(int(i_str) if i_str.isdigit() else 0)
+        for lab in new_labels:
+            # find next occurrence of lab
+            idx = None
+            for i, orig in enumerate(labels):
+                if orig == lab and not used[i]:
+                    idx = i; used[i] = 1; break
+            if idx is None:
+                idx = labels.index(lab)
+            new_indices.append(idx)
         return [ids[i] for i in new_indices]
 
-# ---- CRUD / reorder ----
+# ---- Utilities ----
 def _reorder_by_ids(group, new_id_order):
     id_to_item = {s["id"]: s for s in st.session_state["sections"][group]}
     st.session_state["sections"][group] = [id_to_item[i] for i in new_id_order if i in id_to_item]
@@ -205,11 +217,12 @@ def _remove(group, idx):
 
 def _indent_str(level):
     n = max(0, HEADING_LEVELS.index(level))
-    return " " * n  # em spaces
+    return " " * n  # em spaces (purely visual)
 
 def _merge_response_into_state(resp):
     if not resp:
         return
+    # H1: ignore webhook H1 if user already set or widget rendered
     if not st.session_state.get("_h1_user_initialized") and not st.session_state.get("_h1_widget_rendered"):
         st.session_state["H1_text"] = resp.get("H1", st.session_state.get("H1_text", "")) or st.session_state.get("H1_text", "")
 
@@ -246,63 +259,20 @@ def _merge_response_into_state(resp):
                 })
         st.session_state["sections"][group] = new_list
 
-# ---- Sidebar: Outline + controls (ALWAYS live) ----
-with st.sidebar:
-    st.markdown("## Outline Overview")
-    st.caption("Drag to reorder headings. Use 〈 and 〉 to change levels. H1 is edited in the main panel.")
-
-    # Live outline: reads current widget state (name/level) so it updates instantly
-    for g in GROUPS:
-        st.markdown(f"**{GROUP_LABELS[g]}**")
-        items = st.session_state["sections"][g]
-        if not items:
-            st.caption("No sections yet."); st.markdown("---"); continue
-
-        def _live_heading(sec):
-            key = f"{g}_{sec['id']}_heading"
-            return (st.session_state.get(key) or sec["heading"] or "").strip()
-
-        def _live_level(sec):
-            key = f"{g}_{sec['id']}_level"  # we don’t store level in a widget key, so fall back
-            return st.session_state.get(key, sec["level"])
-
-        display = [
-            f"{_indent_str(_live_level(s))}{_live_level(s)} • {_live_heading(s) or '(untitled)'}"
-            for s in items
-        ]
-        ids = [s["id"] for s in items]
-
-        new_order = _dnd_new_order(display, ids, key=f"sidebar_sort_{g}")
-        if new_order:
-            _reorder_by_ids(g, new_order)
-            st.experimental_set_query_params(_=str(uuid.uuid4()))
-        st.markdown("---")
-
-    # Footer: H1 + feedback + submit + debug, all in sidebar
-    st.text_input("H1", key="H1_text", placeholder="Primary page title (H1)")
-    st.checkbox("Lock H1", key="H1_lock")
-    st.text_area("Overall feedback", key="feedback", placeholder="Optional suggestions…", height=120)
-
-    with st.form("sidebar_submit"):
-        sent = st.form_submit_button("Send / Update", use_container_width=True)
-
-    with st.expander("Debug (optional)"):
-        st.write("Session ID:", st.session_state["session_id"])
-        st.write("Webhook URL set:", bool(WEBHOOK_URL))
-        st.json({
-            "H1_text": st.session_state.get("H1_text"),
-            "H1_lock": st.session_state.get("H1_lock"),
-            "sections": st.session_state.get("sections"),
-        })
-
-# ---- Main content ----
+# ============================
+# Page content (H1 at top)
+# ============================
 st.title("Content Brief Generator")
 
-def _flag_h1_render():
+# H1 row back to the top
+c1, c2 = st.columns([0.8, 0.2])
+with c1:
+    st.text_input("H1", key="H1_text", placeholder="Primary page title (H1)")
     st.session_state["_h1_widget_rendered"] = True
     if st.session_state.get("H1_text", "").strip():
         st.session_state["_h1_user_initialized"] = True
-_flag_h1_render()
+with c2:
+    st.checkbox("Lock H1", key="H1_lock")
 
 # helpers for level change (LEFT raises to H2; RIGHT lowers to H6)
 def _level_raise_toward_h2(level):
@@ -323,25 +293,13 @@ def render_group(gname: str):
 
     items = st.session_state["sections"][gname]
 
-    # DnD within group on page
-    if HAS_SORT and items:
-        body_labels = [
-            f"{_indent_str(s['level'])}{s['level']} • {(st.session_state.get(f'{gname}_{s['id']}_heading') or s['heading'] or '(untitled)')}"
-            for s in items
-        ]
-        body_ids = [s["id"] for s in items]
-        new_order = _dnd_new_order(body_labels, body_ids, key=f"body_sort_{gname}")
-        if new_order:
-            _reorder_by_ids(gname, new_order)
-            st.experimental_set_query_params(_=str(uuid.uuid4()))
-
-    # Cards
+    # CARDS (no main-area DnD; sidebar handles DnD cleanly)
     for idx, sec in enumerate(items):
         sid = sec["id"]
         st.markdown("<div class='section-card'>", unsafe_allow_html=True)
 
-        # Tight left-aligned arrow cluster + level pill; Location + Trash top-right
-        top = st.columns([0.16, 0.16, 0.16, 0.14, 1, 0.22, 0.08], gap="small")
+        # Top row: 〈 ＝ 〉 + H2 pill (left), Location + Trash (right)
+        top = st.columns([0.10, 0.10, 0.10, 0.12, 1, 0.28, 0.08], gap="small")
         if top[0].button("〈", key=f"dec_{gname}_{sid}", help="Raise level toward H2"):
             sec["level"] = _level_raise_toward_h2(sec["level"]); _safe_rerun()
         if top[1].button("＝", key=f"eq_{gname}_{sid}", help="Reset to H2"):
@@ -351,57 +309,102 @@ def render_group(gname: str):
         top[3].markdown(f"<div class='level-chip'>{sec['level']}</div>", unsafe_allow_html=True)
 
         with top[5]:
-            loc = st.selectbox("Location", GROUPS, index=GROUPS.index(gname),
-                               key=f"loc_{gname}_{sid}", label_visibility="collapsed")
+            # Location selector with proper labels
+            loc = st.selectbox(
+                "Location",
+                GROUPS,
+                index=GROUPS.index(gname),
+                key=f"loc_{gname}_{sid}",
+                label_visibility="collapsed",
+                format_func=lambda v: GROUP_LABELS[v],
+            )
             if loc != gname:
                 moved = st.session_state["sections"][gname].pop(idx)
                 st.session_state["sections"][loc].append(moved); _safe_rerun()
         with top[6]:
-            if st.button("🗑️", key=f"rm_{gname}_{sid}", help="Remove"):
+            if st.button("🗑️", key=f"rm_{gname}_{sid}", help="Remove section"):
                 _remove(gname, idx); _safe_rerun()
 
-        # Inputs
-        st.text_input("Heading Name", key=f"{gname}_{sid}_heading", value=sec["heading"], placeholder="Section title…")
-        st.text_area("Description", key=f"{gname}_{sid}_content", value=sec["content"], height=140)
+        # Inputs (live-update the backing dict so sidebar/TSV reflect immediately)
+        new_head = st.text_input("Heading Name", key=f"{gname}_{sid}_heading", value=sec["heading"], placeholder="Section title…")
+        sec["heading"] = new_head
+        new_desc = st.text_area("Description", key=f"{gname}_{sid}_content", value=sec["content"], height=160)
+        sec["content"] = new_desc
 
-        # Answer Type — compact radio (clear selected state)
-        st.radio(
+        # Answer Type — compact radio; keep sec in sync live
+        atype = st.radio(
             "Answer Type",
             ANSWER_TYPES,
             key=f"{gname}_{sid}_atype",
             index=ANSWER_TYPES.index(sec["answer_type"]),
             horizontal=True
         )
+        sec["answer_type"] = atype
 
-        # Bottom controls
-        bottom = st.columns([0.9, 1.5, 1, 1, 1.2])
+        # Bottom row: left-aligned compact buttons + lock/genseq
+        bottom = st.columns([0.18, 0.18, 0.24, 0.30, 0.30])
         with bottom[0]:
-            st.checkbox("Lock Section", key=f"{gname}_{sid}_lock", value=sec["lock"])
-        with bottom[1]:
-            if st.session_state.get(f"{gname}_{sid}_lock", sec["lock"]):
-                st.checkbox("Generate Sequential Sections?", key=f"{gname}_{sid}_genseq", value=sec["gen_sequential"])
-            else:
-                st.session_state[f"{gname}_{sid}_genseq"] = sec["gen_sequential"]
-        with bottom[2]:
             if st.button("⬆️ Up", key=f"up_{gname}_{sid}"):
                 _move(gname, idx, -1); _safe_rerun()
-        with bottom[3]:
+        with bottom[1]:
             if st.button("⬇️ Down", key=f"down_{gname}_{sid}"):
                 _move(gname, idx, 1); _safe_rerun()
-        with bottom[4]:
+        with bottom[2]:
             if st.button("➕ Insert Below", key=f"ins_{gname}_{sid}"):
                 _insert(gname, idx); _safe_rerun()
+        with bottom[3]:
+            # Lock updates live
+            lock_val = st.checkbox("Lock Section", key=f"{gname}_{sid}_lock", value=sec["lock"])
+            sec["lock"] = lock_val
+        with bottom[4]:
+            if sec["lock"]:
+                gseq_val = st.checkbox("Generate Sequential Sections?", key=f"{gname}_{sid}_genseq", value=sec["gen_sequential"])
+                sec["gen_sequential"] = gseq_val
+            else:
+                st.session_state[f"{gname}_{sid}_genseq"] = sec["gen_sequential"]
 
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)  # end card
         st.markdown("<div class='divider subtle section-gap'></div>", unsafe_allow_html=True)
 
-# Render groups
+# Render page groups
 for g in GROUPS:
     render_group(g)
 
-# --- Sidebar "Send/Update" handling ---
+# ============================
+# Sidebar: live outline + Send
+# ============================
+with st.sidebar:
+    st.markdown("## Outline Overview")
+    st.caption("Drag to reorder headings. Use 〈 and 〉 to change levels. H1 is edited at the top.")
+
+    # Live outline, always reflects current text/levels/locations
+    for g in GROUPS:
+        st.markdown(f"**{GROUP_LABELS[g]}**")
+        items = st.session_state["sections"][g]
+        if not items:
+            st.caption("No sections yet."); st.markdown("---"); continue
+
+        def _live_heading(sec):
+            key = f"{g}_{sec['id']}_heading"
+            return (st.session_state.get(key) or sec["heading"] or "").strip()
+
+        display = [f"{_indent_str(s['level'])}{s['level']} • {_live_heading(s) or '(untitled)'}" for s in items]
+        ids = [s["id"] for s in items]
+
+        new_order = _dnd_new_order(display, ids, key=f"sidebar_sort_{g}")
+        if new_order:
+            _reorder_by_ids(g, new_order)
+            st.experimental_set_query_params(_=str(uuid.uuid4()))
+        st.markdown("---")
+
+    # Feedback + submit live in sidebar bottom
+    st.text_area("Overall feedback", key="feedback", placeholder="Optional suggestions…", height=120)
+    with st.form("sidebar_submit"):
+        sent = st.form_submit_button("Send / Update", use_container_width=True)
+
+# --- Send/Update handler ---
 if sent:
-    # sync back to model
+    # Sync current widget values back into the model (already live, but ensure)
     for g in GROUPS:
         updated = []
         for sec in st.session_state["sections"][g]:
@@ -426,17 +429,17 @@ if sent:
         "feedback": st.session_state.get("feedback", ""),
     }
 
-    # Arrays (legacy + new keys)
+    # Convert editor state -> webhook arrays (legacy + new keys)
     for g in GROUPS:
         arr = []
         for sec in st.session_state["sections"][g]:
             item = {
-                "H2": sec["heading"],
+                "H2": sec["heading"],                   # legacy name
                 "Methodology": sec["content"],
                 "HeadingLevel": sec["level"],
                 "Answer Type": sec["answer_type"],
                 "lock": sec["lock"],
-                "regenerate": not sec["lock"],
+                "regenerate": not sec["lock"],         # backward compat
             }
             if sec["lock"]:
                 yn = "Yes" if sec["gen_sequential"] else "No"
@@ -446,12 +449,12 @@ if sent:
         payload[g] = arr
 
     resp = call_n8n(payload)
-    normalized = resp or {}
-    _merge_response_into_state(normalized)
+    _merge_response_into_state(resp or {})
     _safe_rerun()
 
-# ===== TSV EXPORT (bottom of page) =====
-# Build a TSV across all groups, preserving on-screen order
+# ============================
+# TSV EXPORT (bottom of page)
+# ============================
 rows = []
 for g in GROUPS:
     for sec in st.session_state["sections"][g]:
@@ -459,21 +462,13 @@ for g in GROUPS:
         heading_name = st.session_state.get(f"{g}_{sid}_heading", sec["heading"]).strip()
         description = st.session_state.get(f"{g}_{sid}_content", sec["content"]).strip()
         answer_type = st.session_state.get(f"{g}_{sid}_atype", sec["answer_type"])
-        rows.append((
-            sec["level"],
-            heading_name,
-            description.replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n"),
-            answer_type,
-            GROUP_LABELS[g].split()[0] if g == "MainContent" else
-            ("Contextual Border" if g == "ContextualBorder" else "Supplementary")
-        ))
+        location = "Main" if g == "MainContent" else ("Contextual Border" if g == "ContextualBorder" else "Supplementary")
+        rows.append((sec["level"], heading_name, description.replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n"), answer_type, location))
 
 tsv_lines = ["Heading\tHeading Name\tDescription\tAnswerType\tLocation"]
-for r in rows:
-    tsv_lines.append("\t".join(r))
+tsv_lines += ["\t".join(r) for r in rows]
 tsv_blob = "\n".join(tsv_lines)
 
-st.markdown("### Copy TSV")
-st.caption("Copy/paste into a spreadsheet. Columns: Heading | Heading Name | Description | AnswerType | Location")
+st.markdown("### TSV")
 st.code(tsv_blob, language="text")
 st.download_button("Download TSV", data=tsv_blob, file_name="content_brief.tsv", mime="text/tab-separated-values")
