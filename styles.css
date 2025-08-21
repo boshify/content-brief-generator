@@ -1,210 +1,199 @@
-import streamlit as st
-import json
-import pandas as pd
-import time
-from uuid import uuid4
+/* === Global Streamlit Reset === */
+html, body, [class*="stAppViewContainer"] {
+    background-color: #f8f9fa !important;
+    font-family: 'Inter', sans-serif;
+}
 
-# ----------------------------
-# INITIAL CONFIG
-# ----------------------------
-st.set_page_config(layout="wide")
-st.title("Content Brief Builder")
+/* === Heading Section Cards === */
+.heading-section {
+    background-color: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 18px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    transition: box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out;
+    position: relative;
+}
 
-# Session State Initialization
-if "sections" not in st.session_state:
-    st.session_state.sections = []
-if "h1_text" not in st.session_state:
-    st.session_state.h1_text = "Main Title"
-if "debug_enabled" not in st.session_state:
-    st.session_state.debug_enabled = True
-if "sidebar_order" not in st.session_state:
-    st.session_state.sidebar_order = []
-if "lock_states" not in st.session_state:
-    st.session_state.lock_states = {}
-if "subsequent_states" not in st.session_state:
-    st.session_state.subsequent_states = {}
+.heading-section:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-color: #d0d0d0;
+}
 
-# ----------------------------
-# SECTION MODEL
-# ----------------------------
-def create_section():
-    """Creates a new heading section card."""
-    section_id = str(uuid4())
-    section = {
-        "id": section_id,
-        "heading": "H2",
-        "heading_name": "Untitled",
-        "description": "",
-        "answer_type": "Text",
-        "location": "Main",
-        "locked": False,
-        "subsequent": False
-    }
-    st.session_state.sections.append(section)
-    update_sidebar()
+/* === Title Row === */
+.section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
 
-def delete_section(section_id):
-    """Removes a section by ID."""
-    st.session_state.sections = [s for s in st.session_state.sections if s["id"] != section_id]
-    update_sidebar()
+/* === Action Buttons Row (Up / Down / Insert Below / Lock / Subsequent) === */
+.section-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
 
-# ----------------------------
-# SIDEBAR SYNCING
-# ----------------------------
-def update_sidebar():
-    """Ensures sidebar always matches the current JSON payload."""
-    st.session_state.sidebar_order = [s["id"] for s in st.session_state.sections]
+.section-actions button {
+    padding: 4px 8px;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #f7f7f7;
+    transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+}
 
-def reorder_sections(new_order):
-    """Reorders sections when sidebar drag-and-drop changes."""
-    id_to_section = {s["id"]: s for s in st.session_state.sections}
-    st.session_state.sections = [id_to_section[i] for i in new_order]
-    update_sidebar()
+.section-actions button:hover {
+    background-color: #f1f1f1;
+    border-color: #bbb;
+}
 
-# ----------------------------
-# TSV GENERATION
-# ----------------------------
-def generate_tsv():
-    """Generates a TSV export based on the current JSON payload."""
-    data = []
+/* === Arrows (< = >) === */
+.section-actions .arrow-btn {
+    font-weight: bold;
+    padding: 2px 8px;
+}
 
-    # Add H1 Row
-    data.append([
-        "H1",
-        st.session_state.h1_text,
-        "",
-        "",
-        "Title"
-    ])
+/* === Heading Name Input === */
+.heading-input {
+    width: 100%;
+    padding: 6px 10px;
+    font-size: 14px;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    background-color: #fff;
+    box-sizing: border-box;
+}
 
-    # Add Section Rows
-    for sec in st.session_state.sections:
-        data.append([
-            sec["heading"],
-            sec["heading_name"],
-            sec["description"],
-            sec["answer_type"],
-            sec["location"]
-        ])
+.heading-input:focus {
+    outline: none;
+    border-color: #0073e6;
+    box-shadow: 0 0 4px rgba(0, 115, 230, 0.3);
+}
 
-    df = pd.DataFrame(data, columns=["Heading", "Heading Name", "Description", "Answer Type", "Location"])
-    return df.to_csv(sep="\t", index=False)
+/* === Description Textarea === */
+.description-input {
+    width: 100%;
+    min-height: 60px;
+    padding: 8px;
+    font-size: 14px;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    background-color: #fff;
+    resize: vertical;
+}
 
-# ----------------------------
-# RENDER SECTION CARDS
-# ----------------------------
-def render_section(section):
-    """Renders a single heading section card."""
-    col1, col2, col3, col4, col5 = st.columns([1, 3, 3, 2, 1])
+.description-input:focus {
+    outline: none;
+    border-color: #0073e6;
+    box-shadow: 0 0 4px rgba(0, 115, 230, 0.3);
+}
 
-    # Heading Level Controls
-    with col1:
-        left = st.button("⬅", key=f"left_{section['id']}")
-        equal = st.button("=", key=f"eq_{section['id']}")
-        right = st.button("➡", key=f"right_{section['id']}")
+/* === Location & Trash Controls === */
+.section-top-controls {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
 
-        if left:
-            if section["heading"] != "H2":
-                current_num = int(section["heading"][1])
-                section["heading"] = f"H{max(1, current_num - 1)}"
+.location-dropdown {
+    padding: 4px 6px;
+    font-size: 13px;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+    background-color: #fff;
+    cursor: pointer;
+    min-width: 180px;
+}
 
-        if right:
-            if section["heading"] != "H6":
-                current_num = int(section["heading"][1])
-                section["heading"] = f"H{min(6, current_num + 1)}"
+/* === Trash Button === */
+.trash-btn {
+    background-color: #ffebeb;
+    color: #b30000;
+    border: 1px solid #ffcccc;
+    padding: 4px 8px;
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: background-color 0.2s ease-in-out;
+}
 
-    # Editable Heading Name
-    with col2:
-        section["heading_name"] = st.text_input(
-            f"Heading Name {section['id']}",
-            value=section["heading_name"],
-            label_visibility="collapsed"
-        )
+.trash-btn:hover {
+    background-color: #ffcccc;
+}
 
-    # Description Input
-    with col3:
-        section["description"] = st.text_area(
-            f"Description {section['id']}",
-            value=section["description"],
-            label_visibility="collapsed"
-        )
+/* === Sidebar === */
+.sidebar {
+    background-color: #fff !important;
+    padding: 12px !important;
+}
 
-    # Answer Type Dropdown
-    with col4:
-        section["answer_type"] = st.selectbox(
-            f"Answer Type {section['id']}",
-            ["Text", "Number", "List", "Boolean"],
-            index=["Text", "Number", "List", "Boolean"].index(section["answer_type"]),
-            label_visibility="collapsed"
-        )
+.sidebar-heading {
+    font-weight: 500;
+    font-size: 13px;
+    margin-bottom: 6px;
+    color: #222;
+    cursor: grab;
+    padding: 6px 8px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background-color: #f8f8f8;
+    transition: background-color 0.2s ease-in-out;
+}
 
-    # Delete Section Button
-    with col5:
-        st.button("🗑", key=f"delete_{section['id']}", on_click=delete_section, args=(section["id"],))
+.sidebar-heading:hover {
+    background-color: #ececec;
+}
 
-    # Bottom Row Controls
-    bottom_cols = st.columns([1, 1, 2, 2])
-    with bottom_cols[0]:
-        st.checkbox(
-            "Lock",
-            value=section["locked"],
-            key=f"lock_{section['id']}",
-            on_change=lambda sid=section["id"]: toggle_lock(sid)
-        )
+/* === Answer Type Buttons === */
+.answer-type-group {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+}
 
-    with bottom_cols[1]:
-        st.checkbox(
-            "Subsequent",
-            value=section["subsequent"],
-            key=f"subseq_{section['id']}",
-            on_change=lambda sid=section["id"]: toggle_subsequent(sid)
-        )
+.answer-type-btn {
+    flex: 1;
+    padding: 6px;
+    font-size: 12px;
+    text-align: center;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    background-color: #f7f7f7;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+}
 
-def toggle_lock(section_id):
-    for s in st.session_state.sections:
-        if s["id"] == section_id:
-            s["locked"] = not s["locked"]
-            break
+.answer-type-btn.active {
+    background-color: #0073e6;
+    color: #fff;
+    border-color: #0073e6;
+}
 
-def toggle_subsequent(section_id):
-    for s in st.session_state.sections:
-        if s["id"] == section_id:
-            s["subsequent"] = not s["subsequent"]
-            break
+.answer-type-btn:hover {
+    background-color: #f0f0f0;
+}
 
-# ----------------------------
-# MAIN LAYOUT
-# ----------------------------
-# Editable H1 Title Field
-st.session_state.h1_text = st.text_input("H1 Title", st.session_state.h1_text)
+/* === TSV Output Section === */
+.tsv-container {
+    margin-top: 20px;
+    padding: 10px;
+    border: 1px dashed #ccc;
+    border-radius: 6px;
+    background-color: #fff;
+}
 
-# Render Sections
-for section in st.session_state.sections:
-    with st.container():
-        render_section(section)
-        st.markdown("---")
-
-# Add New Section Button
-st.button("➕ Add Section", on_click=create_section)
-
-# ----------------------------
-# SIDEBAR
-# ----------------------------
-st.sidebar.title("Outline Overview")
-st.sidebar.caption("Drag to reorder headings. Use < and > to change levels. H1 is edited in the main panel.")
-
-# Dynamic sidebar heading names synced with JSON payload
-for sec in st.session_state.sections:
-    st.sidebar.write(f"{sec['heading']} - {sec['heading_name']}")
-
-# Debug Section in Sidebar
-if st.session_state.debug_enabled:
-    st.sidebar.subheader("Debug Payload")
-    st.sidebar.json(st.session_state.sections)
-
-# ----------------------------
-# TSV OUTPUT AT BOTTOM
-# ----------------------------
-st.subheader("📄 TSV Export")
-tsv_content = generate_tsv()
-st.download_button("Download TSV", data=tsv_content, file_name="content_brief.tsv", mime="text/tab-separated-values")
+.tsv-container pre {
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
