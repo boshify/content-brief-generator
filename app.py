@@ -223,7 +223,7 @@ def build_snapshot():
     }
     for g in GROUPS:
         for sec in st.session_state["sections"][g]:
-            # Always prefer latest widget values if present
+            # Prefer the current widget value if present; fall back to persisted dict
             hname = st.session_state.get(f"{g}_{sec['id']}_heading_name", sec["heading_name"])
             desc  = st.session_state.get(f"{g}_{sec['id']}_desc", sec["description"])
             atype = st.session_state.get(f"{g}_{sec['id']}_atype", sec["answer_type"])
@@ -238,7 +238,7 @@ def build_snapshot():
                 "Answer Type": atype,
                 "lock": locked,
                 **({"Subsequent Sections?": "Yes" if subq else "No"} if locked else {}),
-                "_id": sec["id"],  # keep for sidebar mapping
+                "_id": sec["id"],  # id retained only for UI mapping
             })
     return snap
 
@@ -264,7 +264,7 @@ def render_group(group):
         sid = sec["id"]
         st.markdown("<div class='section-card'>", unsafe_allow_html=True)
 
-        # Top control row (no divider above; CSS styles the card)
+        # Top control row (no divider above; CSS handles the card)
         t = st.columns([0.08, 0.08, 0.08, 0.12, 1, 0.30, 0.08], gap="small")
         if t[0].button("〈", key=f"dec_{group}_{sid}", help="Raise level toward H2"):
             sec["heading"] = _level_raise(sec["heading"]); _safe_rerun()
@@ -290,7 +290,7 @@ def render_group(group):
             if st.button("🗑️", key=f"rm_{group}_{sid}", help="Remove section"):
                 _remove_item(group, idx); _safe_rerun()
 
-        # Fields — bind to session_state keys so snapshot sees *current* values
+        # Fields — bind to session_state keys so snapshot sees current values
         sec["heading_name"] = st.text_input(
             "Heading Name", key=f"{group}_{sid}_heading_name", value=sec["heading_name"], placeholder="Section title…"
         )
@@ -319,16 +319,17 @@ def render_group(group):
             if sec["lock"]:
                 sec["subsequent"] = st.checkbox("Generate Subsequent Sections?", key=f"{group}_{sid}_subseq", value=sec["subsequent"])
             else:
+                # keep key consistent when unlocking
                 st.session_state[f"{group}_{sid}_subseq"] = sec["subsequent"]
 
         st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("<div class='divider subtle section-gap'></div>", unsafe_allow_html=True)
+        # (No divider inside the card; any between-card spacing handled by CSS)
 
 # Render all groups
 for g in GROUPS:
     render_group(g)
 
-# Build snapshot AFTER rendering (guaranteed latest titles/values)
+# Build snapshot AFTER rendering (guaranteed latest widget values)
 snapshot = build_snapshot()
 
 # ---------- Sidebar: uses SNAPSHOT for labels + DnD reorder ----------
@@ -378,9 +379,8 @@ if sent:
         "SupplementaryContent": [{k: v for k, v in d.items() if k != "_id"} for d in snapshot["SupplementaryContent"]],
     }
     resp = call_n8n(payload)
-    # Merge response respecting locks + H1 rule
+    # Merge response respecting locks; never override user's set H1
     if resp:
-        # Do not overwrite existing H1 if user has set text already
         if not st.session_state.get("H1_text"):
             st.session_state["H1_text"] = resp.get("H1", st.session_state["H1_text"]) or st.session_state["H1_text"]
         for g in GROUPS:
