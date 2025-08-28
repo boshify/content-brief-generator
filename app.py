@@ -79,10 +79,7 @@ def _normalize_n8n_response(resp):
         data = data["output"]
 
     h1_val = data.get("H1", "")
-    if isinstance(h1_val, dict):
-        h1_text = h1_val.get("text", "")
-    else:
-        h1_text = str(h1_val)
+    h1_text = str(h1_val) if not isinstance(h1_val, dict) else h1_val.get("text", "")
 
     return {
         "H1": h1_text,
@@ -241,7 +238,7 @@ def _get_widget_value_by_suffix(suffix: str, default):
 def build_snapshot():
     snap = {
         "session_id": st.session_state["session_id"],
-        "H1": {"text": st.session_state.get("H1_text", ""), "lock": st.session_state.get("H1_lock", False)},
+        "H1": st.session_state.get("H1_text", ""),   # FIX: send H1 as string
         "feedback": st.session_state.get("feedback", ""),
         "MainContent": [],
         "ContextualBorder": [],
@@ -267,7 +264,7 @@ def build_snapshot():
                 "HeadingLevel": sec["heading"],
                 "Answer Type": atype,
                 "lock": bool(locked),
-                "Subsequent Sections?": "Yes" if subq else "No",
+                "Subsequent Sections?": "Yes" if subq else "No",  # FIX: always include
                 "_id": sid,
             })
     return snap
