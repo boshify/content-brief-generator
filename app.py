@@ -33,17 +33,17 @@ GROUP_LABELS = {
     "ContextualBorder": "Contextual Border",
     "SupplementaryContent": "Supplementary Content",
 }
-ANSWER_TYPES = ["Auto", "EDA", "DDA", "L+LD", "S L+LD", "EOE"]
+ANSWER_TYPES = ["Auto", "EDA", "DDA", "L+LD", "S+L+LD", "EOE"]
 LEVELS = ["H2", "H3", "H4", "H5", "H6"]
 
 # ---------- Session bootstrap ----------
 st.session_state.setdefault("session_id", str(uuid.uuid4()))
-st.session_state.setdefault("sections", {g: [] for g in GROUPS})  # per-location lists of dicts
+st.session_state.setdefault("sections", {g: [] for g in GROUPS})
 st.session_state.setdefault("H1_text", "")
 st.session_state.setdefault("H1_lock", False)
 st.session_state.setdefault("feedback", "")
 st.session_state.setdefault("hydrated_once", False)
-st.session_state.setdefault("_waiting", False)  # overlay while contacting webhook
+st.session_state.setdefault("_waiting", False)
 
 def _new_section(heading_name="", level="H2", description="", answer_type="Auto", lock=False, gen_subsequent=False):
     return {
@@ -56,16 +56,50 @@ def _new_section(heading_name="", level="H2", description="", answer_type="Auto"
         "subsequent": bool(gen_subsequent),
     }
 
-# ---------- Hydration from webhook (one-time pre-widget) ----------
+# ---------- Normalization helpers ----------
+def _normalize_section(item: dict) -> dict:
+    return {
+        "H2": item.get("H2", ""),
+        "Methodology": item.get("Methodology", ""),
+        "HeadingLevel": item.get("HeadingLevel", "H2"),
+        "Answer Type": item.get("Answer Type", "Auto"),
+        "lock": bool(item.get("lock", False)),
+        "Subsequent Sections?": item.get("Subsequent Sections?", "No"),
+    }
+
+def _normalize_n8n_response(resp):
+    if resp is None:
+        return {}
+    if isinstance(resp, str):
+        return {"raw": resp}
+    data = resp
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    if isinstance(data, dict) and "output" in data and isinstance(data["output"], dict):
+        data = data["output"]
+
+    h1_val = data.get("H1", "")
+    if isinstance(h1_val, dict):
+        h1_text = h1_val.get("text", "")
+    else:
+        h1_text = str(h1_val)
+
+    return {
+        "H1": h1_text,
+        "MainContent": [_normalize_section(it) for it in data.get("MainContent", [])],
+        "ContextualBorder": [_normalize_section(it) for it in data.get("ContextualBorder", [])],
+        "SupplementaryContent": [_normalize_section(it) for it in data.get("SupplementaryContent", [])],
+        "feedback": data.get("feedback", ""),
+    }
+
+# ---------- Hydration ----------
 def _hydrate_from_pending():
     if st.session_state.get("hydrated_once"):
-        # allow multiple hydrations across runs; only guard initial first-run behavior
         pass
     pending = st.session_state.pop("_pending_hydration", None)
     if not pending:
         return
 
-    # Do not overwrite user's H1 if already set
     if not st.session_state.get("H1_text"):
         st.session_state["H1_text"] = pending.get("H1", "") or ""
 
@@ -78,6 +112,8 @@ def _hydrate_from_pending():
                     level=item.get("HeadingLevel", "H2"),
                     description=item.get("Methodology", ""),
                     answer_type=item.get("Answer Type", "Auto"),
+                    lock=item.get("lock", False),
+                    gen_subsequent=(item.get("Subsequent Sections?", "No") == "Yes"),
                 )
             )
     if "feedback" in pending and not st.session_state.get("feedback"):
@@ -97,23 +133,6 @@ def _build_headers():
         except ValueError:
             st.warning("N8N_AUTH_HEADER must be 'Header-Name: value'; ignoring.")
     return headers
-
-def _normalize_n8n_response(resp):
-    if resp is None:
-        return {}
-    if isinstance(resp, str):
-        return {"raw": resp}
-    data = resp
-    if isinstance(data, list):
-        data = data[0] if data else {}
-    if isinstance(data, dict) and "output" in data and isinstance(data["output"], dict):
-        data = data["output"]
-    return {
-        "H1": data.get("H1", ""),
-        "MainContent": data.get("MainContent", []),
-        "ContextualBorder": data.get("ContextualBorder", []),
-        "SupplementaryContent": data.get("SupplementaryContent", []),
-    }
 
 def _overlay_blocker():
     if st.session_state.get("_waiting"):
@@ -156,7 +175,7 @@ def _safe_rerun():
         except Exception:
             pass
 
-# ---------- Sidebar DnD helper ----------
+# ---------- Sidebar DnD ----------
 def _dnd(labels, ids, key):
     if not HAS_SORT or not labels:
         return None
@@ -212,18 +231,13 @@ def _level_lower(level):
 def _indent(level):
     return " " * LEVELS.index(level)
 
-# ---------- Helper: read latest widget value by section id (robust after moving groups) ----------
 def _get_widget_value_by_suffix(suffix: str, default):
-    """
-    Return the most recent value from st.session_state for any key that endswith(suffix).
-    This lets us survive moves between groups (keys are prefixed with group name).
-    """
     for k, v in st.session_state.items():
         if isinstance(k, str) and k.endswith(suffix):
             return v
     return default
 
-# ---------- Build snapshot (SINGLE SOURCE OF TRUTH for sidebar + payload + TSV) ----------
+# ---------- Snapshot ----------
 def build_snapshot():
     snap = {
         "session_id": st.session_state["session_id"],
@@ -236,9 +250,6 @@ def build_snapshot():
     for g in GROUPS:
         for sec in st.session_state["sections"][g]:
             sid = sec["id"]
-
-            # Prefer the current widget values by sid (survives group moves), else fallback to group-prefixed keys,
-            # else fallback to the persisted dict.
             hname = _get_widget_value_by_suffix(f"_{sid}_heading_name",
                      st.session_state.get(f"{g}_{sid}_heading_name", sec["heading_name"]))
             desc  = _get_widget_value_by_suffix(f"_{sid}_desc",
@@ -253,25 +264,23 @@ def build_snapshot():
             snap[g].append({
                 "H2": hname,
                 "Methodology": desc,
-                "HeadingLevel": sec["heading"],  # level is stored inside dict and updated by buttons
+                "HeadingLevel": sec["heading"],
                 "Answer Type": atype,
                 "lock": bool(locked),
-                **({"Subsequent Sections?": "Yes" if subq else "No"} if locked else {}),
-                "_id": sid,  # id retained only for UI mapping
+                "Subsequent Sections?": "Yes" if subq else "No",
+                "_id": sid,
             })
     return snap
 
 # ---------- UI ----------
 st.title("Content Brief Generator")
 
-# H1 row (top)
 c1, c2 = st.columns([0.8, 0.2])
 with c1:
     st.text_input("H1", key="H1_text", placeholder="Primary page title (H1)")
 with c2:
     st.checkbox("Lock H1", key="H1_lock")
 
-# Groups render
 def render_group(group):
     st.subheader(GROUP_LABELS[group])
     if st.button("➕ Add Section", key=f"add_{group}"):
@@ -282,51 +291,34 @@ def render_group(group):
     for idx, sec in enumerate(items):
         sid = sec["id"]
 
-        # --- NEW: wrapper marker for precise border/shadow targeting via CSS ---
         st.markdown("<div class='section-card-wrap'></div>", unsafe_allow_html=True)
-
-        # Keep the original marker too (back-compat with previous CSS)
         st.markdown("<div class='section-card'>", unsafe_allow_html=True)
 
-        # Top control row (no divider above; CSS handles the card)
         t = st.columns([0.08, 0.08, 0.08, 0.12, 1, 0.30, 0.08], gap="small")
-        if t[0].button("〈", key=f"dec_{group}_{sid}", help="Raise level toward H2"):
+        if t[0].button("〈", key=f"dec_{group}_{sid}"):
             sec["heading"] = _level_raise(sec["heading"]); _safe_rerun()
-        if t[1].button("＝", key=f"eq_{group}_{sid}", help="Reset to H2"):
+        if t[1].button("＝", key=f"eq_{group}_{sid}"):
             sec["heading"] = "H2"; _safe_rerun()
-        if t[2].button("〉", key=f"inc_{group}_{sid}", help="Lower level toward H6"):
+        if t[2].button("〉", key=f"inc_{group}_{sid}"):
             sec["heading"] = _level_lower(sec["heading"]); _safe_rerun()
         t[3].markdown(f"<div class='level-chip'>{sec['heading']}</div>", unsafe_allow_html=True)
 
         with t[5]:
-            loc = st.selectbox(
-                "Location",
-                GROUPS,
-                index=GROUPS.index(group),
-                key=f"loc_{group}_{sid}",
-                label_visibility="collapsed",
-                format_func=lambda v: GROUP_LABELS[v],
-            )
+            loc = st.selectbox("Location", GROUPS, index=GROUPS.index(group),
+                               key=f"loc_{group}_{sid}", label_visibility="collapsed",
+                               format_func=lambda v: GROUP_LABELS[v])
             if loc != group:
                 moved = st.session_state["sections"][group].pop(idx)
                 st.session_state["sections"][loc].append(moved); _safe_rerun()
         with t[6]:
-            if st.button("🗑️", key=f"rm_{group}_{sid}", help="Remove section"):
+            if st.button("🗑️", key=f"rm_{group}_{sid}"):
                 _remove_item(group, idx); _safe_rerun()
 
-        # Fields — bind to session_state keys so snapshot sees current values
-        sec["heading_name"] = st.text_input(
-            "Heading Name", key=f"{group}_{sid}_heading_name", value=sec["heading_name"], placeholder="Section title…"
-        )
-        sec["description"] = st.text_area(
-            "Description", key=f"{group}_{sid}_desc", value=sec["description"], height=140
-        )
-        sec["answer_type"] = st.radio(
-            "Answer Type", ANSWER_TYPES, key=f"{group}_{sid}_atype",
-            index=ANSWER_TYPES.index(sec["answer_type"]), horizontal=True
-        )
+        sec["heading_name"] = st.text_input("Heading Name", key=f"{group}_{sid}_heading_name", value=sec["heading_name"])
+        sec["description"] = st.text_area("Description", key=f"{group}_{sid}_desc", value=sec["description"], height=140)
+        sec["answer_type"] = st.radio("Answer Type", ANSWER_TYPES, key=f"{group}_{sid}_atype",
+                                      index=ANSWER_TYPES.index(sec["answer_type"]), horizontal=True)
 
-        # Bottom controls — tight cluster
         b = st.columns([0.14, 0.14, 0.20, 0.22, 0.22], gap="small")
         with b[0]:
             if st.button("⬆️ Up", key=f"up_{group}_{sid}"):
@@ -340,27 +332,18 @@ def render_group(group):
         with b[3]:
             sec["lock"] = st.checkbox("Lock Section", key=f"{group}_{sid}_lock", value=sec["lock"])
         with b[4]:
-            if sec["lock"]:
-                sec["subsequent"] = st.checkbox("Generate Subsequent Sections?", key=f"{group}_{sid}_subseq", value=sec["subsequent"])
-            else:
-                # keep key consistent when unlocking
-                st.session_state[f"{group}_{sid}_subseq"] = sec["subsequent"]
+            sec["subsequent"] = st.checkbox("Generate Subsequent Sections?", key=f"{group}_{sid}_subseq", value=sec["subsequent"])
 
         st.markdown("</div>", unsafe_allow_html=True)
-        # (No divider inside the card; any between-card spacing handled by CSS)
 
-# Render all groups
 for g in GROUPS:
     render_group(g)
 
-# Build snapshot AFTER rendering (guaranteed latest widget values)
 snapshot = build_snapshot()
 
-# ---------- Sidebar: uses SNAPSHOT for labels + DnD reorder ----------
+# ---------- Sidebar ----------
 with st.sidebar:
     st.markdown("## Outline Overview")
-    st.caption("Drag to reorder headings. Use 〈 and 〉 to change levels. H1 is edited at the top.")
-
     for g in GROUPS:
         st.markdown(f"**{GROUP_LABELS[g]}**")
         items = snapshot[g]
@@ -369,74 +352,47 @@ with st.sidebar:
 
         labels = [f"{_indent(it['HeadingLevel'])}{(it['H2'] or '(untitled)').strip()}" for it in items]
         ids = [it["_id"] for it in items]
-
         new_order = _dnd(labels, ids, key=f"sidebar_sort_{g}")
         if new_order:
-            _reorder_group_by_ids(g, new_order)
-            _safe_rerun()
+            _reorder_group_by_ids(g, new_order); _safe_rerun()
         st.markdown("---")
 
     st.text_area("Overall feedback", key="feedback", placeholder="Optional suggestions…", height=120)
-
     with st.form("sidebar_submit"):
         sent = st.form_submit_button("Send / Update", use_container_width=True)
 
     with st.expander("Debug (optional)"):
-        # Show EXACT payload we will send (without _id)
-        preview = {
-            "session_id": snapshot["session_id"],
-            "H1": snapshot["H1"],
-            "feedback": snapshot["feedback"],
-        }
+        preview = {"session_id": snapshot["session_id"], "H1": snapshot["H1"], "feedback": snapshot["feedback"]}
         for g in GROUPS:
             preview[g] = [{k: v for k, v in d.items() if k != "_id"} for d in snapshot[g]]
         st.json(preview)
 
-# ---------- Send / Update ----------
+# ---------- Send ----------
 if sent:
-    payload = {
-        "session_id": snapshot["session_id"],
-        "H1": snapshot["H1"],
-        "feedback": snapshot["feedback"],
-        "MainContent": [{k: v for k, v in d.items() if k != "_id"} for d in snapshot["MainContent"]],
-        "ContextualBorder": [{k: v for k, v in d.items() if k != "_id"} for d in snapshot["ContextualBorder"]],
-        "SupplementaryContent": [{k: v for k, v in d.items() if k != "_id"} for d in snapshot["SupplementaryContent"]],
-    }
+    payload = {"session_id": snapshot["session_id"], "H1": snapshot["H1"], "feedback": snapshot["feedback"]}
+    for g in GROUPS:
+        payload[g] = [{k: v for k, v in d.items() if k != "_id"} for d in snapshot[g]]
     resp = call_n8n(payload)
-
-    # FIX: H1 hydration after webhook — never set st.session_state["H1_text"] here.
-    # Instead, stage the incoming values in _pending_hydration and rerun so
-    # _hydrate_from_pending() (which runs BEFORE any widgets) can safely apply them.
     if resp:
-        staged = {
-            "H1": resp.get("H1", ""),
-            "MainContent": resp.get("MainContent", []),
-            "ContextualBorder": resp.get("ContextualBorder", []),
-            "SupplementaryContent": resp.get("SupplementaryContent", []),
-            "feedback": resp.get("feedback", ""),
-        }
+        staged = {"H1": resp.get("H1", ""), "MainContent": resp.get("MainContent", []),
+                  "ContextualBorder": resp.get("ContextualBorder", []),
+                  "SupplementaryContent": resp.get("SupplementaryContent", []),
+                  "feedback": resp.get("feedback", "")}
         st.session_state["_pending_hydration"] = staged
-
     _safe_rerun()
 
-# ---------- TSV (bottom, includes H1 first row) ----------
+# ---------- TSV ----------
 rows = []
 rows.append(("H1", (st.session_state.get("H1_text") or "").strip(), "", "", "Title"))
 for g in GROUPS:
     for sec in st.session_state["sections"][g]:
         location = "Main" if g == "MainContent" else ("Contextual Border" if g == "ContextualBorder" else "Supplementary")
-        rows.append((
-            sec["heading"],
-            (sec["heading_name"] or "").strip(),
-            (sec["description"] or "").replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n").strip(),
-            sec["answer_type"],
-            location,
-        ))
-
+        rows.append((sec["heading"], (sec["heading_name"] or "").strip(),
+                     (sec["description"] or "").replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n").strip(),
+                     sec["answer_type"], location))
 tsv_lines = ["Heading\tHeading Name\tDescription\tAnswerType\tLocation"]
 tsv_lines += ["\t".join(r) for r in rows]
 tsv_blob = "\n".join(tsv_lines)
-
 st.markdown("### TSV")
 st.code(tsv_blob, language="text")
 st.download_button("Download TSV", data=tsv_blob, file_name="content_brief.tsv", mime="text/tab-separated-values")
