@@ -164,8 +164,26 @@ def call_n8n(payload: dict) -> dict:
     st.session_state["_waiting"] = True
     _overlay_blocker()
     try:
-        r = requests.post(WEBHOOK_URL, json=payload, timeout=180, headers=_build_headers())
-        r.raise_for_status()
+        try:
+            r = requests.post(
+                WEBHOOK_URL,
+                json=payload,
+                timeout=180,
+                headers=_build_headers(),
+            )
+            r.raise_for_status()
+        except requests.exceptions.RequestException as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status:
+                st.error(
+                    f"Failed to contact the automation service (HTTP {status}). Please try again later."
+                )
+            else:
+                st.error(
+                    "Failed to contact the automation service. Please check your connection and try again."
+                )
+            return {}
+
         try:
             raw = r.json()
         except json.JSONDecodeError:
