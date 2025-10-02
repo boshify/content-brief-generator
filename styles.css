@@ -8,6 +8,7 @@
   --border: #1f1f2a;
   --shadow-soft: 0 6px 18px rgba(110, 231, 255, 0.10),
                  0 3px 10px rgba(167, 139, 250, 0.08);
+  --card-gap-y: 32px;
 }
 
 html, body, .stApp {
@@ -41,7 +42,7 @@ html, body, .stApp {
   border-radius: 14px;
   padding: 16px 16px 14px 16px;
   box-shadow: var(--shadow-soft);
-  margin: 18px 2px 28px 2px;
+  margin: var(--card-gap-y) 2px calc(var(--card-gap-y) + 10px) 2px;
   position: relative;
   overflow: hidden;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
@@ -122,6 +123,115 @@ div[role="radiogroup"] label {
 div[role="radiogroup"] input:checked + div {
   background: #1d2a45 !important;
   box-shadow: 0 0 10px rgba(110,231,255,0.22) inset !important;
+}
+
+.section-card-contents {
+  position: relative;
+}
+
+.section-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-card-header-body {
+  display: grid;
+  gap: 8px;
+}
+
+.accordion-toggle-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid #2f2f4a;
+  background: #151525;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.accordion-toggle-icon::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--accent);
+  transition: transform 0.2s ease;
+}
+
+.section-card-contents[data-accordion-open="true"] .accordion-toggle-icon {
+  background: #1d2a45;
+  border-color: #3d3d60;
+}
+
+.section-card-contents[data-accordion-open="true"] .accordion-toggle-icon::before {
+  transform: rotate(180deg);
+}
+
+.section-card-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s ease;
+}
+
+.section-card-body-inner {
+  overflow: hidden;
+  display: grid;
+  gap: 18px;
+  padding-top: 0;
+  transition: padding-top 0.25s ease;
+}
+
+.section-card-contents[data-accordion-open="true"] .section-card-body {
+  grid-template-rows: 1fr;
+}
+
+.section-card-contents[data-accordion-open="true"] .section-card-body-inner {
+  padding-top: 12px;
+}
+
+.section-field-anchor {
+  display: block;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.sidebar-jump-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 18px;
+}
+
+.sidebar-jump {
+  display: block;
+  text-decoration: none;
+  color: var(--text);
+  background: rgba(26, 26, 40, 0.65);
+  border: 1px solid rgba(36, 36, 55, 0.9);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.sidebar-jump:hover {
+  background: rgba(110, 231, 255, 0.14);
+  border-color: rgba(110, 231, 255, 0.35);
+  color: var(--accent);
+}
+
+.sidebar-jump--disabled {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
+  background: rgba(26, 26, 40, 0.35);
+  border-color: rgba(36, 36, 55, 0.55);
 }
 
 [data-testid="stSidebar"]{
