@@ -33,6 +33,7 @@ GROUP_LABELS = {
     "SupplementaryContent": "Supplementary Content",
 }
 ANSWER_TYPES = ["Auto", "EDA", "DDA", "L+LD", "S+L+LD", "EOE"]
+ANSWER_LENGTHS = ["Small", "Medium", "Large"]
 LEVELS = ["H2", "H3", "H4", "H5", "H6"]
 
 # ---------- Session bootstrap ----------
@@ -44,13 +45,22 @@ st.session_state.setdefault("feedback", "")
 st.session_state.setdefault("hydrated_once", False)
 st.session_state.setdefault("_waiting", False)
 
-def _new_section(heading_name="", level="H2", description="", answer_type="Auto", lock=False, gen_subsequent=False):
+def _new_section(
+    heading_name="",
+    level="H2",
+    description="",
+    answer_type="Auto",
+    answer_length="Medium",
+    lock=False,
+    gen_subsequent=False,
+):
     return {
         "id": str(uuid.uuid4()),
         "heading": level if level in LEVELS else "H2",
         "heading_name": heading_name or "",
         "description": description or "",
         "answer_type": answer_type if answer_type in ANSWER_TYPES else "Auto",
+        "answer_length": answer_length if answer_length in ANSWER_LENGTHS else "Medium",
         "lock": bool(lock),
         "subsequent": bool(gen_subsequent),
     }
@@ -62,6 +72,7 @@ def _normalize_section(item: dict) -> dict:
         "Methodology": item.get("Methodology", ""),
         "HeadingLevel": item.get("HeadingLevel", "H2"),
         "Answer Type": item.get("Answer Type", "Auto"),
+        "Answer Length": item.get("Answer Length", "Medium"),
         "lock": bool(item.get("lock", False)),
         "Subsequent Sections?": item.get("Subsequent Sections?", "No"),
     }
@@ -107,6 +118,7 @@ def _hydrate_from_pending():
                     level=item.get("HeadingLevel", "H2"),
                     description=item.get("Methodology", ""),
                     answer_type=item.get("Answer Type", "Auto"),
+                    answer_length=item.get("Answer Length", "Medium"),
                     lock=item.get("lock", False),
                     gen_subsequent=(item.get("Subsequent Sections?", "No") == "Yes"),
                 )
@@ -250,6 +262,10 @@ def build_snapshot():
                      st.session_state.get(f"{g}_{sid}_desc", sec["description"]))
             atype = _get_widget_value_by_suffix(f"_{sid}_atype",
                      st.session_state.get(f"{g}_{sid}_atype", sec["answer_type"]))
+            alen = _get_widget_value_by_suffix(
+                f"_{sid}_alen",
+                st.session_state.get(f"{g}_{sid}_alen", sec.get("answer_length", "Medium")),
+            )
             locked = _get_widget_value_by_suffix(f"_{sid}_lock",
                      st.session_state.get(f"{g}_{sid}_lock", sec["lock"]))
             subq   = _get_widget_value_by_suffix(f"_{sid}_subseq",
@@ -260,6 +276,7 @@ def build_snapshot():
                 "Methodology": desc,
                 "HeadingLevel": sec["heading"],
                 "Answer Type": atype,
+                "Answer Length": alen if alen in ANSWER_LENGTHS else "Medium",
                 "lock": bool(locked),
                 "Subsequent Sections?": "Yes" if subq else "No",  # FIX: always include
                 "_id": sid,
@@ -310,8 +327,24 @@ def render_group(group):
 
         sec["heading_name"] = st.text_input("Heading Name", key=f"{group}_{sid}_heading_name", value=sec["heading_name"])
         sec["description"] = st.text_area("Description", key=f"{group}_{sid}_desc", value=sec["description"], height=140)
-        sec["answer_type"] = st.radio("Answer Type", ANSWER_TYPES, key=f"{group}_{sid}_atype",
-                                      index=ANSWER_TYPES.index(sec["answer_type"]), horizontal=True)
+        answer_type_value = sec["answer_type"] if sec["answer_type"] in ANSWER_TYPES else "Auto"
+        sec["answer_type"] = st.radio(
+            "Answer Type",
+            ANSWER_TYPES,
+            key=f"{group}_{sid}_atype",
+            index=ANSWER_TYPES.index(answer_type_value),
+            horizontal=True,
+        )
+        answer_length_value = sec.get("answer_length", "Medium")
+        if answer_length_value not in ANSWER_LENGTHS:
+            answer_length_value = "Medium"
+        sec["answer_length"] = st.radio(
+            "Answer Length",
+            ANSWER_LENGTHS,
+            key=f"{group}_{sid}_alen",
+            index=ANSWER_LENGTHS.index(answer_length_value),
+            horizontal=True,
+        )
 
         b = st.columns([0.14, 0.14, 0.20, 0.22, 0.22], gap="small")
         with b[0]:
@@ -376,14 +409,14 @@ if sent:
 
 # ---------- TSV ----------
 rows = []
-rows.append(("H1", (st.session_state.get("H1_text") or "").strip(), "", "", "Title"))
+rows.append(("H1", (st.session_state.get("H1_text") or "").strip(), "", "", "", "Title"))
 for g in GROUPS:
     for sec in st.session_state["sections"][g]:
         location = "Main" if g == "MainContent" else "Supplementary"
         rows.append((sec["heading"], (sec["heading_name"] or "").strip(),
                      (sec["description"] or "").replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n").strip(),
-                     sec["answer_type"], location))
-tsv_lines = ["Heading\tHeading Name\tDescription\tAnswerType\tLocation"]
+                     sec["answer_type"], sec.get("answer_length", "Medium"), location))
+tsv_lines = ["Heading\tHeading Name\tDescription\tAnswerType\tAnswerLength\tLocation"]
 tsv_lines += ["\t".join(r) for r in rows]
 tsv_blob = "\n".join(tsv_lines)
 st.markdown("### TSV")
