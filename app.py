@@ -27,10 +27,9 @@ load_css()
 WEBHOOK_URL = st.secrets.get("N8N_WEBHOOK_URL") or os.getenv("N8N_WEBHOOK_URL")
 AUTH_HEADER = st.secrets.get("N8N_AUTH_HEADER") or os.getenv("N8N_AUTH_HEADER")
 
-GROUPS = ["MainContent", "ContextualBorder", "SupplementaryContent"]
+GROUPS = ["MainContent", "SupplementaryContent"]
 GROUP_LABELS = {
     "MainContent": "Main Content",
-    "ContextualBorder": "Contextual Border",
     "SupplementaryContent": "Supplementary Content",
 }
 ANSWER_TYPES = ["Auto", "EDA", "DDA", "L+LD", "S+L+LD", "EOE"]
@@ -84,7 +83,6 @@ def _normalize_n8n_response(resp):
     return {
         "H1": h1_text,
         "MainContent": [_normalize_section(it) for it in data.get("MainContent", [])],
-        "ContextualBorder": [_normalize_section(it) for it in data.get("ContextualBorder", [])],
         "SupplementaryContent": [_normalize_section(it) for it in data.get("SupplementaryContent", [])],
         "feedback": data.get("feedback", ""),
     }
@@ -241,7 +239,6 @@ def build_snapshot():
         "H1": st.session_state.get("H1_text", ""),   # FIX: send H1 as string
         "feedback": st.session_state.get("feedback", ""),
         "MainContent": [],
-        "ContextualBorder": [],
         "SupplementaryContent": [],
     }
     for g in GROUPS:
@@ -372,7 +369,6 @@ if sent:
     resp = call_n8n(payload)
     if resp:
         staged = {"H1": resp.get("H1", ""), "MainContent": resp.get("MainContent", []),
-                  "ContextualBorder": resp.get("ContextualBorder", []),
                   "SupplementaryContent": resp.get("SupplementaryContent", []),
                   "feedback": resp.get("feedback", "")}
         st.session_state["_pending_hydration"] = staged
@@ -383,7 +379,7 @@ rows = []
 rows.append(("H1", (st.session_state.get("H1_text") or "").strip(), "", "", "Title"))
 for g in GROUPS:
     for sec in st.session_state["sections"][g]:
-        location = "Main" if g == "MainContent" else ("Contextual Border" if g == "ContextualBorder" else "Supplementary")
+        location = "Main" if g == "MainContent" else "Supplementary"
         rows.append((sec["heading"], (sec["heading_name"] or "").strip(),
                      (sec["description"] or "").replace("\t", " ").replace("\r\n", "\\n").replace("\n", "\\n").strip(),
                      sec["answer_type"], location))
