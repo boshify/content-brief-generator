@@ -418,6 +418,8 @@ st.markdown(
     <script>
     (function () {
       const INTERACTIVE_SELECTOR = 'button, input, textarea, select, label, [role="button"], [role="checkbox"], [role="radio"], [role="switch"], [contenteditable="true"]';
+      const SIDEBAR_BLOCK_SELECTOR = '.sidebar-outline-block';
+      const SIDEBAR_ITEM_SELECTOR = '.sortable-item';
 
       function getHeaderOffset() {
         const header = document.querySelector('header[data-testid="stHeader"]');
@@ -435,6 +437,7 @@ st.markdown(
       }
 
       function setCardState(card, open) {
+        if (!card) return;
         card.setAttribute('data-accordion-open', open ? 'true' : 'false');
         const header = card.querySelector('.section-card-header');
         if (header) {
@@ -488,73 +491,172 @@ st.markdown(
         if (!hash) return;
         const target = document.getElementById(hash);
         if (!target) return;
-        const card = target.classList.contains('section-card-contents')
-          ? target
-          : target.closest('.section-card-contents');
+        const card = target.classList.contains('section-card-contents') ? target : target.closest('.section-card-contents');
         if (card) {
           openCard(card);
         }
         smoothScrollToTarget(target, hash, !fromHashChange);
       }
 
-      function bindCard(card) {
-        if (!card || card.dataset.accordionBound === '1') return;
-        card.dataset.accordionBound = '1';
-        if (!card.hasAttribute('data-accordion-open')) {
-          setCardState(card, false);
-        }
-        const header = card.querySelector('.section-card-header');
-        if (header && header.dataset.accordionHeader !== '1') {
-          header.dataset.accordionHeader = '1';
-          header.setAttribute('role', 'button');
-          header.setAttribute('tabindex', '0');
-          header.addEventListener('click', function (event) {
-            if (event.target.closest('.accordion-toggle-icon')) {
-              event.preventDefault();
-              toggleCard(card);
-              return;
-            }
-            if (event.target.closest(INTERACTIVE_SELECTOR)) {
-              return;
-            }
-            toggleCard(card);
-          });
-          header.addEventListener('keydown', function (event) {
-            if (event.target !== header) return;
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              toggleCard(card);
-            }
-          });
-        }
-        const toggle = card.querySelector('.accordion-toggle-icon');
-        if (toggle && toggle.dataset.accordionToggleBound !== '1') {
-          toggle.dataset.accordionToggleBound = '1';
-          toggle.addEventListener('click', function (event) {
-            event.preventDefault();
-            toggleCard(card);
-          });
-        }
+      function ensureAccordionAttributes() {
+        document.querySelectorAll('.section-card-contents').forEach(function (card) {
+          if (!card.hasAttribute('data-accordion-open')) {
+            setCardState(card, false);
+          }
+          const header = card.querySelector('.section-card-header');
+          if (header) {
+            header.setAttribute('role', 'button');
+            header.setAttribute('tabindex', '0');
+            header.setAttribute('aria-expanded', card.getAttribute('data-accordion-open') === 'true' ? 'true' : 'false');
+          }
+        });
       }
 
-      function bindSidebarLink(link) {
-        if (!link || link.dataset.sidebarJumpBound === '1') return;
-        link.dataset.sidebarJumpBound = '1';
-        link.addEventListener('click', function (event) {
-          const targetId = link.getAttribute('data-target');
-          if (!targetId) return;
-          const target = document.getElementById(targetId);
-          if (!target) {
-            return;
+      function handleAccordionClick(event) {
+        const toggle = event.target.closest('.accordion-toggle-icon');
+        if (toggle) {
+          const card = toggle.closest('.section-card-contents');
+          if (card) {
+            event.preventDefault();
+            toggleCard(card);
           }
-          event.preventDefault();
-          focusHash(targetId, false);
+          return;
+        }
+        const header = event.target.closest('.section-card-header');
+        if (!header) return;
+        const card = header.closest('.section-card-contents');
+        if (!card) return;
+        const interactive = event.target.closest(INTERACTIVE_SELECTOR);
+        if (interactive && interactive !== header) {
+          return;
+        }
+        event.preventDefault();
+        toggleCard(card);
+      }
+
+      function handleAccordionKeydown(event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const header = event.target.closest('.section-card-header');
+        if (!header) return;
+        const card = header.closest('.section-card-contents');
+        if (!card) return;
+        event.preventDefault();
+        toggleCard(card);
+      }
+
+      function bindSortableItems(block) {
+        const metaRaw = block.dataset.outlineMeta;
+        if (!metaRaw) return;
+        let meta;
+        try {
+          meta = JSON.parse(metaRaw);
+        } catch (err) {
+          return;
+        }
+        const iframe = block.querySelector('iframe');
+        if (!iframe) return;
+
+        const bind = function () {
+          if (!iframe.contentWindow || !iframe.contentWindow.document) return;
+          const doc = iframe.contentWindow.document;
+          const items = Array.from(doc.querySelectorAll(SIDEBAR_ITEM_SELECTOR));
+          if (!items.length) return;
+          items.forEach(function (item, index) {
+            if (item.dataset.jumpBound === '1') return;
+            const data = meta[index];
+            if (!data) return;
+            item.dataset.jumpBound = '1';
+            item.dataset.target = data.target || '';
+            item.setAttribute('role', 'link');
+            if (!item.hasAttribute('tabindex')) {
+              item.setAttribute('tabindex', '0');
+            }
+            if (data.label) {
+              item.setAttribute('aria-label', data.label);
+            }
+
+            let pointerDown = false;
+            let moved = false;
+
+            item.addEventListener('pointerdown', function () {
+              pointerDown = true;
+              moved = false;
+            });
+            item.addEventListener('pointermove', function () {
+              if (pointerDown) {
+                moved = true;
+              }
+            });
+            item.addEventListener('pointerleave', function () {
+              if (pointerDown) {
+                moved = true;
+              }
+            });
+            item.addEventListener('pointerup', function (event) {
+              if (!pointerDown) return;
+              pointerDown = false;
+              if (moved) {
+                moved = false;
+                return;
+              }
+              const targetId = item.dataset.target;
+              if (!targetId) return;
+              event.preventDefault();
+              focusHash(targetId, false);
+            });
+            item.addEventListener('click', function (event) {
+              if (moved) {
+                moved = false;
+                return;
+              }
+              const targetId = item.dataset.target;
+              if (!targetId) return;
+              event.preventDefault();
+              focusHash(targetId, false);
+            });
+            item.addEventListener('keydown', function (event) {
+              if (event.key === 'Enter' || event.key === ' ') {
+                const targetId = item.dataset.target;
+                if (!targetId) return;
+                event.preventDefault();
+                focusHash(targetId, false);
+              }
+            });
+          });
+        };
+
+        if (!iframe.dataset.cbgSidebarBound) {
+          iframe.dataset.cbgSidebarBound = '1';
+          iframe.addEventListener('load', function () {
+            setTimeout(bind, 0);
+          });
+        }
+        setTimeout(bind, 0);
+      }
+
+      function enhanceSidebarSortables() {
+        document.querySelectorAll(SIDEBAR_BLOCK_SELECTOR).forEach(bindSortableItems);
+      }
+
+      function bindFallbackLinks() {
+        document.querySelectorAll('.sidebar-jump').forEach(function (link) {
+          if (!link || link.dataset.sidebarJumpBound === '1') return;
+          link.dataset.sidebarJumpBound = '1';
+          link.addEventListener('click', function (event) {
+            const targetId = link.getAttribute('data-target');
+            if (!targetId) return;
+            const target = document.getElementById(targetId);
+            if (!target) return;
+            event.preventDefault();
+            focusHash(targetId, false);
+          });
         });
       }
 
       function applyBindings() {
-        document.querySelectorAll('.section-card-contents').forEach(bindCard);
-        document.querySelectorAll('.sidebar-jump').forEach(bindSidebarLink);
+        ensureAccordionAttributes();
+        enhanceSidebarSortables();
+        bindFallbackLinks();
       }
 
       function init() {
@@ -563,7 +665,13 @@ st.markdown(
       }
 
       if (!window.__CBGEnhancements) {
-        window.__CBGEnhancements = { refresh: init };
+        window.__CBGEnhancements = {};
+      }
+
+      if (!window.__CBGEnhancements.listenersAttached) {
+        document.addEventListener('click', handleAccordionClick, true);
+        document.addEventListener('keydown', handleAccordionKeydown);
+        window.__CBGEnhancements.listenersAttached = true;
         const observer = new MutationObserver(function () {
           window.__CBGEnhancements.refresh();
         });
@@ -571,7 +679,11 @@ st.markdown(
         window.addEventListener('hashchange', function () {
           focusHash(location.hash, true);
         });
+        window.__CBGEnhancements.observer = observer;
       }
+
+      window.__CBGEnhancements.refresh = init;
+      window.__CBGEnhancements.focusHash = focusHash;
 
       window.__CBGEnhancements.refresh();
     })();
@@ -591,36 +703,49 @@ with st.sidebar:
 
         labels = [f"{_indent(it['HeadingLevel'])}{(it['H2'] or '(untitled)').strip()}" for it in items]
         ids = [it["_id"] for it in items]
-        new_order = _dnd(labels, ids, key=f"sidebar_sort_{g}")
-        if new_order:
-            _reorder_group_by_ids(g, new_order); _safe_rerun()
-
-        jump_html_parts = []
+        outline_meta = []
         for it in items:
             heading_text = (it.get("H2") or "").strip()
+            display_text = heading_text or "(untitled)"
             level = it.get("HeadingLevel")
             try:
                 indent_level = LEVELS.index(level)
             except ValueError:
                 indent_level = 0
-            indent_html = "&emsp;" * indent_level
-            display_text = heading_text or "(untitled)"
-            safe_text = html.escape(display_text)
-            label_html = f"{indent_html}{safe_text}"
-            if heading_text:
-                jump_html_parts.append(
-                    f"<a class='sidebar-jump' href='#section-{it['_id']}' data-target='section-{it['_id']}'>"
-                    f"{label_html}</a>"
-                )
-            else:
-                jump_html_parts.append(
-                    f"<div class='sidebar-jump sidebar-jump--disabled'>{label_html}</div>"
-                )
-        if jump_html_parts:
+            outline_meta.append(
+                {
+                    "id": it["_id"],
+                    "target": f"section-{it['_id']}",
+                    "label": display_text,
+                    "indent": indent_level,
+                }
+            )
+
+        if HAS_SORT and labels:
+            meta_json = html.escape(json.dumps(outline_meta))
             st.markdown(
-                "<div class='sidebar-jump-list'>" + "".join(jump_html_parts) + "</div>",
+                f"<div class='sidebar-outline-block' data-outline-group='{g}' "
+                f"data-outline-meta='{meta_json}'>",
                 unsafe_allow_html=True,
             )
+            new_order = _dnd(labels, ids, key=f"sidebar_sort_{g}")
+            st.markdown("</div>", unsafe_allow_html=True)
+            if new_order:
+                _reorder_group_by_ids(g, new_order); _safe_rerun()
+        else:
+            jump_html_parts = []
+            for meta in outline_meta:
+                safe_text = html.escape(meta["label"])
+                indent_html = "&emsp;" * int(meta.get("indent", 0))
+                jump_html_parts.append(
+                    f"<a class='sidebar-jump' href='#{meta['target']}' data-target='{meta['target']}'>"
+                    f"{indent_html}{safe_text}</a>"
+                )
+            if jump_html_parts:
+                st.markdown(
+                    "<div class='sidebar-jump-list'>" + "".join(jump_html_parts) + "</div>",
+                    unsafe_allow_html=True,
+                )
         st.markdown("---")
 
     st.text_area("Overall feedback", key="feedback", placeholder="Optional suggestions…", height=120)
