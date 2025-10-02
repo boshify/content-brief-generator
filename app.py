@@ -24,8 +24,24 @@ def load_css(path: str = "styles.css"):
 
 load_css()
 
+
+def load_js(path: str):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            st.markdown(f"<script>{f.read()}</script>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        pass
+
+
+load_js("QuickHeadingRegenerate.js")
+
 # ---------- Config ----------
 WEBHOOK_URL = st.secrets.get("N8N_WEBHOOK_URL") or os.getenv("N8N_WEBHOOK_URL")
+QUICK_REGEN_WEBHOOK_URL = (
+    st.secrets.get("N8N_QUICK_REGEN_WEBHOOK_URL")
+    or os.getenv("N8N_QUICK_REGEN_WEBHOOK_URL")
+    or "https://app.aiseoacademy.co/webhook/a912237e-6a27-4f4d-bf61-418ae9502f59"
+)
 AUTH_HEADER = st.secrets.get("N8N_AUTH_HEADER") or os.getenv("N8N_AUTH_HEADER")
 
 GROUPS = ["MainContent", "SupplementaryContent"]
@@ -302,11 +318,32 @@ def build_snapshot():
             })
     return snap
 
+
+def build_webhook_body(snapshot: dict) -> dict:
+    body = {
+        "session_id": snapshot.get("session_id"),
+        "H1": snapshot.get("H1", ""),
+        "feedback": snapshot.get("feedback", ""),
+    }
+    for group in GROUPS:
+        items = []
+        for item in snapshot.get(group, []) or []:
+            clean = {k: v for k, v in item.items() if k != "_id"}
+            items.append(clean)
+        body[group] = items
+    return body
+
 # ---------- UI ----------
 st.title("Content Brief Generator")
 
+h1_lock_value = bool(st.session_state.get("H1_lock", False))
 c1, c2 = st.columns([0.8, 0.2])
 with c1:
+    st.markdown(
+        f"<div class='heading-input-anchor' data-anchor-key='H1' data-heading-id='H1' "
+        f"data-section-path='H1' data-heading-level='H1' data-locked={'true' if h1_lock_value else 'false'}></div>",
+        unsafe_allow_html=True,
+    )
     st.text_input("H1", key="H1_text", placeholder="Primary page title (H1)")
 with c2:
     st.checkbox("Lock H1", key="H1_lock")
@@ -361,7 +398,28 @@ def render_group(group):
 
         st.markdown("<div class='section-card-header-body'>", unsafe_allow_html=True)
 
-        sec["heading_name"] = st.text_input("Heading Name", key=f"{group}_{sid}_heading_name", value=sec["heading_name"])
+        heading_level = sec.get("heading", "H2")
+        lock_value = bool(
+            st.session_state.get(f"{group}_{sid}_lock", sec.get("lock", False))
+        )
+        sec["lock"] = lock_value
+        section_path = f"{group}[{idx}].{heading_level}"
+        st.markdown(
+            "<div class='heading-input-anchor' "
+            f"data-anchor-key='{sid}' data-heading-id='{sid}' "
+            f"data-section-path='{html.escape(section_path)}' "
+            f"data-heading-level='{heading_level}' "
+            f"data-locked={'true' if lock_value else 'false'}></div>",
+            unsafe_allow_html=True,
+        )
+        current_heading_value = st.session_state.get(
+            f"{group}_{sid}_heading_name", sec["heading_name"]
+        )
+        sec["heading_name"] = st.text_input(
+            "Heading Name",
+            key=f"{group}_{sid}_heading_name",
+            value=current_heading_value,
+        )
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -430,6 +488,26 @@ for g in GROUPS:
     render_group(g)
 
 snapshot = build_snapshot()
+webhook_body = build_webhook_body(snapshot)
+
+quick_regen_data = {
+    "webhook": QUICK_REGEN_WEBHOOK_URL,
+    "body": webhook_body,
+    "envelope": {
+        "headers": {"content-type": "application/json"},
+        "params": {},
+        "query": {},
+        "webhookUrl": WEBHOOK_URL or "",
+        "executionMode": "production",
+    },
+}
+
+quick_regen_json = json.dumps(quick_regen_data).replace("</", "<\\/")
+st.markdown(
+    f"<script>window.__CBGQuickRegenData = {quick_regen_json};"
+    "window.dispatchEvent(new CustomEvent('cbg:update-quick-regen'));</script>",
+    unsafe_allow_html=True,
+)
 
 st.markdown(
     """
@@ -778,9 +856,7 @@ with st.sidebar:
 
 # ---------- Send ----------
 if sent:
-    payload = {"session_id": snapshot["session_id"], "H1": snapshot["H1"], "feedback": snapshot["feedback"]}
-    for g in GROUPS:
-        payload[g] = [{k: v for k, v in d.items() if k != "_id"} for d in snapshot[g]]
+    payload = build_webhook_body(snapshot)
     resp = call_n8n(payload)
     if resp:
         staged = {"H1": resp.get("H1", ""), "MainContent": resp.get("MainContent", []),
