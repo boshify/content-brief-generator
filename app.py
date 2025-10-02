@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import html
 import requests
 import streamlit as st
 
@@ -123,8 +124,8 @@ def _hydrate_from_pending():
                     gen_subsequent=(item.get("Subsequent Sections?", "No") == "Yes"),
                 )
             )
-    if "feedback" in pending and not st.session_state.get("feedback"):
-        st.session_state["feedback"] = pending["feedback"]
+    if "feedback" in pending:
+        st.session_state["feedback"] = pending.get("feedback", "") or ""
 
     st.session_state["hydrated_once"] = True
 
@@ -304,30 +305,68 @@ def render_group(group):
 
         st.markdown("<div class='section-card-wrap'></div>", unsafe_allow_html=True)
         st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='section-card-contents' id='section-{sid}' data-section-id='{sid}'>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"<div class='section-card-header' data-accordion-toggle data-section-id='{sid}'>",
+            unsafe_allow_html=True,
+        )
 
-        t = st.columns([0.08, 0.08, 0.08, 0.12, 1, 0.30, 0.08], gap="small")
-        if t[0].button("〈", key=f"dec_{group}_{sid}"):
+        t = st.columns([0.06, 0.08, 0.08, 0.08, 0.12, 1, 0.30, 0.08], gap="small")
+        with t[0]:
+            st.markdown(
+                "<div class='accordion-toggle-icon' aria-hidden='true'></div>",
+                unsafe_allow_html=True,
+            )
+        if t[1].button("〈", key=f"dec_{group}_{sid}"):
             sec["heading"] = _level_raise(sec["heading"]); _safe_rerun()
-        if t[1].button("＝", key=f"eq_{group}_{sid}"):
+        if t[2].button("＝", key=f"eq_{group}_{sid}"):
             sec["heading"] = "H2"; _safe_rerun()
-        if t[2].button("〉", key=f"inc_{group}_{sid}"):
+        if t[3].button("〉", key=f"inc_{group}_{sid}"):
             sec["heading"] = _level_lower(sec["heading"]); _safe_rerun()
-        t[3].markdown(f"<div class='level-chip'>{sec['heading']}</div>", unsafe_allow_html=True)
+        t[4].markdown(f"<div class='level-chip'>{sec['heading']}</div>", unsafe_allow_html=True)
 
-        with t[5]:
+        with t[6]:
             loc = st.selectbox("Location", GROUPS, index=GROUPS.index(group),
                                key=f"loc_{group}_{sid}", label_visibility="collapsed",
                                format_func=lambda v: GROUP_LABELS[v])
             if loc != group:
                 moved = st.session_state["sections"][group].pop(idx)
                 st.session_state["sections"][loc].append(moved); _safe_rerun()
-        with t[6]:
+        with t[7]:
             if st.button("🗑️", key=f"rm_{group}_{sid}"):
                 _remove_item(group, idx); _safe_rerun()
 
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("<div class='section-card-header-body'>", unsafe_allow_html=True)
+
         sec["heading_name"] = st.text_input("Heading Name", key=f"{group}_{sid}_heading_name", value=sec["heading_name"])
-        sec["description"] = st.text_area("Description", key=f"{group}_{sid}_desc", value=sec["description"], height=140)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown(
+            f"<div class='section-card-body' data-accordion-panel data-section-id='{sid}'><div class='section-card-body-inner'>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            f"<span id='section-{sid}-description' class='section-field-anchor'></span>",
+            unsafe_allow_html=True,
+        )
+        sec["description"] = st.text_area(
+            "Description",
+            key=f"{group}_{sid}_desc",
+            value=sec["description"],
+            height=140,
+        )
         answer_type_value = sec["answer_type"] if sec["answer_type"] in ANSWER_TYPES else "Auto"
+        st.markdown(
+            f"<span id='section-{sid}-answer-type' class='section-field-anchor'></span>",
+            unsafe_allow_html=True,
+        )
         sec["answer_type"] = st.radio(
             "Answer Type",
             ANSWER_TYPES,
@@ -338,6 +377,10 @@ def render_group(group):
         answer_length_value = sec.get("answer_length", "Medium")
         if answer_length_value not in ANSWER_LENGTHS:
             answer_length_value = "Medium"
+        st.markdown(
+            f"<span id='section-{sid}-answer-length' class='section-field-anchor'></span>",
+            unsafe_allow_html=True,
+        )
         sec["answer_length"] = st.radio(
             "Answer Length",
             ANSWER_LENGTHS,
@@ -361,12 +404,181 @@ def render_group(group):
         with b[4]:
             sec["subsequent"] = st.checkbox("Generate Subsequent Sections?", key=f"{group}_{sid}_subseq", value=sec["subsequent"])
 
+        st.markdown("</div></div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
 for g in GROUPS:
     render_group(g)
 
 snapshot = build_snapshot()
+
+st.markdown(
+    """
+    <script>
+    (function () {
+      const INTERACTIVE_SELECTOR = 'button, input, textarea, select, label, [role="button"], [role="checkbox"], [role="radio"], [role="switch"], [contenteditable="true"]';
+
+      function getHeaderOffset() {
+        const header = document.querySelector('header[data-testid="stHeader"]');
+        let offset = header ? header.getBoundingClientRect().height : 0;
+        const toolbar = document.querySelector('[data-testid="stToolbar"]');
+        if (toolbar) {
+          const rect = toolbar.getBoundingClientRect();
+          offset = Math.max(offset, rect.bottom);
+        }
+        return offset + 12;
+      }
+
+      function allowMultiple() {
+        return Boolean(document.querySelector('[data-accordion-open-all="true"], [data-accordion-mode="multi"], [data-accordion-allow="multiple"]'));
+      }
+
+      function setCardState(card, open) {
+        card.setAttribute('data-accordion-open', open ? 'true' : 'false');
+        const header = card.querySelector('.section-card-header');
+        if (header) {
+          header.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+      }
+
+      function closeOtherCards(current) {
+        if (allowMultiple()) return;
+        document.querySelectorAll('.section-card-contents[data-accordion-open="true"]').forEach(function (card) {
+          if (card === current) return;
+          setCardState(card, false);
+        });
+      }
+
+      function openCard(card) {
+        if (!card) return;
+        closeOtherCards(card);
+        setCardState(card, true);
+      }
+
+      function toggleCard(card) {
+        if (!card) return;
+        const isOpen = card.getAttribute('data-accordion-open') === 'true';
+        if (isOpen) {
+          setCardState(card, false);
+        } else {
+          openCard(card);
+        }
+      }
+
+      function smoothScrollToTarget(target, hash, updateHistory) {
+        if (!target) return;
+        const headerOffset = getHeaderOffset();
+        const rect = target.getBoundingClientRect();
+        const absoluteY = rect.top + window.pageYOffset;
+        const top = Math.max(absoluteY - headerOffset, 0);
+        window.scrollTo({ top: top, behavior: 'smooth' });
+        if (updateHistory && hash) {
+          try {
+            history.pushState(null, '', '#' + hash);
+          } catch (err) {
+            location.hash = hash;
+          }
+        }
+      }
+
+      function focusHash(hashValue, fromHashChange) {
+        if (!hashValue) return;
+        const hash = hashValue.replace(/^#/, '');
+        if (!hash) return;
+        const target = document.getElementById(hash);
+        if (!target) return;
+        const card = target.classList.contains('section-card-contents')
+          ? target
+          : target.closest('.section-card-contents');
+        if (card) {
+          openCard(card);
+        }
+        smoothScrollToTarget(target, hash, !fromHashChange);
+      }
+
+      function bindCard(card) {
+        if (!card || card.dataset.accordionBound === '1') return;
+        card.dataset.accordionBound = '1';
+        if (!card.hasAttribute('data-accordion-open')) {
+          setCardState(card, false);
+        }
+        const header = card.querySelector('.section-card-header');
+        if (header && header.dataset.accordionHeader !== '1') {
+          header.dataset.accordionHeader = '1';
+          header.setAttribute('role', 'button');
+          header.setAttribute('tabindex', '0');
+          header.addEventListener('click', function (event) {
+            if (event.target.closest('.accordion-toggle-icon')) {
+              event.preventDefault();
+              toggleCard(card);
+              return;
+            }
+            if (event.target.closest(INTERACTIVE_SELECTOR)) {
+              return;
+            }
+            toggleCard(card);
+          });
+          header.addEventListener('keydown', function (event) {
+            if (event.target !== header) return;
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              toggleCard(card);
+            }
+          });
+        }
+        const toggle = card.querySelector('.accordion-toggle-icon');
+        if (toggle && toggle.dataset.accordionToggleBound !== '1') {
+          toggle.dataset.accordionToggleBound = '1';
+          toggle.addEventListener('click', function (event) {
+            event.preventDefault();
+            toggleCard(card);
+          });
+        }
+      }
+
+      function bindSidebarLink(link) {
+        if (!link || link.dataset.sidebarJumpBound === '1') return;
+        link.dataset.sidebarJumpBound = '1';
+        link.addEventListener('click', function (event) {
+          const targetId = link.getAttribute('data-target');
+          if (!targetId) return;
+          const target = document.getElementById(targetId);
+          if (!target) {
+            return;
+          }
+          event.preventDefault();
+          focusHash(targetId, false);
+        });
+      }
+
+      function applyBindings() {
+        document.querySelectorAll('.section-card-contents').forEach(bindCard);
+        document.querySelectorAll('.sidebar-jump').forEach(bindSidebarLink);
+      }
+
+      function init() {
+        applyBindings();
+        focusHash(location.hash, true);
+      }
+
+      if (!window.__CBGEnhancements) {
+        window.__CBGEnhancements = { refresh: init };
+        const observer = new MutationObserver(function () {
+          window.__CBGEnhancements.refresh();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        window.addEventListener('hashchange', function () {
+          focusHash(location.hash, true);
+        });
+      }
+
+      window.__CBGEnhancements.refresh();
+    })();
+    </script>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ---------- Sidebar ----------
 with st.sidebar:
@@ -382,6 +594,33 @@ with st.sidebar:
         new_order = _dnd(labels, ids, key=f"sidebar_sort_{g}")
         if new_order:
             _reorder_group_by_ids(g, new_order); _safe_rerun()
+
+        jump_html_parts = []
+        for it in items:
+            heading_text = (it.get("H2") or "").strip()
+            level = it.get("HeadingLevel")
+            try:
+                indent_level = LEVELS.index(level)
+            except ValueError:
+                indent_level = 0
+            indent_html = "&emsp;" * indent_level
+            display_text = heading_text or "(untitled)"
+            safe_text = html.escape(display_text)
+            label_html = f"{indent_html}{safe_text}"
+            if heading_text:
+                jump_html_parts.append(
+                    f"<a class='sidebar-jump' href='#section-{it['_id']}' data-target='section-{it['_id']}'>"
+                    f"{label_html}</a>"
+                )
+            else:
+                jump_html_parts.append(
+                    f"<div class='sidebar-jump sidebar-jump--disabled'>{label_html}</div>"
+                )
+        if jump_html_parts:
+            st.markdown(
+                "<div class='sidebar-jump-list'>" + "".join(jump_html_parts) + "</div>",
+                unsafe_allow_html=True,
+            )
         st.markdown("---")
 
     st.text_area("Overall feedback", key="feedback", placeholder="Optional suggestions…", height=120)
